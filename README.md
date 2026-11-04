@@ -271,6 +271,12 @@ simulated solo game; unmapped stations keep the simulated game.
   setup timeout (`XQ_SETUP_TIMEOUT_MS`), taps rejected while a website game
   is pending/live, operator-started games are adopted but never aborted, and
   ending the kiosk session aborts the machine game with it.
+- The website is the only thing that starts a kiosk's game: a kiosk screen
+  follows only rooms this server requested (`createdByUs`). A game the
+  operator starts at the station stays in the lobby's Live games for
+  spectators but never moves a kiosk off its attract screen or out of a
+  tapped session. Regression test: `server/.smoke-authority.js` (mock with
+  `MOCK_AUTO=1`, kiosk id = device id).
 - Machine games are untimed, and quick match is refused on kiosks (no
   strangers moving real pieces).
 - Write credentials: `XQ_WRITER_ID` / `XQ_WRITER_KEY` (default to the reader

@@ -1082,6 +1082,11 @@ function kioskAutoWatch(room) {
 }
 
 function kioskAutoWatchOne(kioskId, room) {
+  // The website is the only thing that starts a kiosk's game: a screen follows
+  // only rooms this server requested (createdByUs). A game the operator
+  // started at the station stays watchable from the lobby, but never pulls a
+  // kiosk off its attract screen or out of a tapped player's session.
+  if (!room.createdByUs) return;
   const kiosk = kioskFor(kioskId);
   if (!kiosk || kiosk.sessionId || kiosk.room || kiosk.noAutoWatch) return;
   if (kiosk.watching) {

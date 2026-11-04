@@ -6,6 +6,7 @@
 //   SMOKE_VARIANT  variant to request (e.g. "fail-setup", "sync-error-demo")
 //   SMOKE_ABORT=1  send station_game_abort after the first move
 //   SMOKE_DOUBLE=1 send start_station_game twice (double-start guard)
+//   SMOKE_SESSION=1 link a tap session (a tapped kiosk), as a real signed-in player has
 //   SMOKE_MS       total run time (default 15000)
 'use strict';
 
@@ -20,7 +21,8 @@ let abortSent = false;
 ws.onopen = () => {
   console.log('[harness] connected');
   ws.send(JSON.stringify({ type: 'kiosk_hello', stationId: STATION }));
-  ws.send(JSON.stringify({ type: 'hello', name: 'Harness Player', uid: null }));
+  ws.send(JSON.stringify({ type: 'hello', name: 'Harness Player', uid: process.env.SMOKE_UID || null }));
+  if (process.env.SMOKE_SESSION === '1') ws.send(JSON.stringify({ type: 'session', sessionId: 'smoke-session' }));
   setTimeout(() => {
     console.log('[harness] -> start_station_game', process.env.SMOKE_VARIANT || '(no variant)');
     ws.send(JSON.stringify({

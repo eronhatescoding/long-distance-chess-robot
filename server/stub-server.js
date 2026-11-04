@@ -1041,7 +1041,7 @@ async function kioskBusy(stationId) {
   // a website-started game pending or live on this station's machine blocks
   // new taps even if the kiosk screen itself has crashed
   const xst = xqStationByDevice(XQ_STATION_MAP[stationId]);
-  if (xst && (xst.requested || (xst.room && xst.room.createdByUs))) return true;
+  if (xst && (xst.requested || xst.partyRoom || (xst.room && xst.room.createdByUs))) return true;
   const kiosk = kioskFor(stationId);
   if (!kiosk) return false;
   if (kiosk.room || kiosk.watching) return true;
@@ -1091,7 +1091,9 @@ function kioskAutoWatchOne(kioskId, room) {
   // kiosk off its attract screen or out of a tapped player's session.
   if (!room.createdByUs) return;
   const kiosk = kioskFor(kioskId);
-  if (!kiosk || kiosk.sessionId || kiosk.room || kiosk.noAutoWatch) return;
+  // A tapped kiosk carries a sessionId, and it must still follow the game it asked for; only
+  // a kiosk seated in a room as a player, or one that left the stream on purpose, is skipped.
+  if (!kiosk || kiosk.room || kiosk.noAutoWatch) return;
   if (kiosk.watching) {
     const current = kiosk.watching;
     if (rooms.get(current.code) === current) return; // a live room — stay
@@ -1265,12 +1267,15 @@ async function xqPost(pathname, body) {
 
 // reader-2 contract gates the write features; checked once at startup
 let xqWriteEnabled = false;
+// website-seated PvP rooms (the engine advertises features: ["website_rooms"])
+let xqRoomsEnabled = false;
 
 async function xqCheckContract() {
   try {
     const v = await xqGet('/api/version');
     xqWriteEnabled = v.contract === 'reader-2';
-    console.log(`[xq] contract: ${v.contract || 'unknown'} — website game control ${xqWriteEnabled ? 'ENABLED' : 'disabled (engine too old)'}`);
+    xqRoomsEnabled = xqWriteEnabled && Array.isArray(v.features) && v.features.includes('website_rooms');
+    console.log(`[xq] contract: ${v.contract || 'unknown'} — website game control ${xqWriteEnabled ? 'ENABLED' : 'disabled (engine too old)'}, party rooms ${xqRoomsEnabled ? 'ENABLED' : 'disabled'}`);
   } catch (err) {
     // no version endpoint at all = pre-reader-2
     console.warn(`[xq] contract check failed (${err.message}) — website game control disabled`);
@@ -1384,7 +1389,7 @@ async function xqRequestStationGame(socket, msg) {
   if (!st || !xqWriteEnabled) {
     return send(socket, { type: 'station_game_failed', reason: 'unavailable' });
   }
-  if (st.requested || st.room) {
+  if (st.requested || st.room || st.partyRoom) {
     // a website game pending/live, or an operator game we adopted — the
     // machine can only play one game at a time
     return send(socket, { type: 'station_game_failed', reason: 'busy' });
@@ -1433,6 +1438,167 @@ function xqFailRequest(st, reason) {
   broadcastLobbyGames();
 }
 
+// ---------------------------------------------------------------------------
+// Physical party rooms (two machines, one game)
+// ---------------------------------------------------------------------------
+// A tapped player at machine X creates a party (a 4-letter code, or a friend
+// challenge that carries the code); a tapped player at machine Y joins it. The
+// website alone decides the game starts: only when the joiner arrives does it
+// ask the engine to seat BOTH stations (random sides, no engine-side code),
+// then the normal watcher stream drives both kiosks. The players' sockets stay
+// out of the room — their kiosks watch it like any station game — and keep a
+// signalling path to each other for the video call.
+//
+//   waiting (host seated, PARTY_WAIT_MS) -> requested (engine create in flight)
+//   -> setting_up (stations attach, boards checked) -> playing -> finished
+
+const PARTY_WAIT_MS = Number(process.env.PARTY_WAIT_MS) || 10 * 60 * 1000;
+
+// The machine a socket plays on, when it may start a physical party: a kiosk
+// of a mapped station, xiangqi only (chess has no camera side yet).
+function xqPartyStation(socket, gameType) {
+  if (!socket.kioskStation || gameType !== 'xiangqi') return null;
+  return xqStationByDevice(XQ_STATION_MAP[socket.kioskStation]);
+}
+
+function xqPartyNotify(room, msg) {
+  for (const peer of room.callPeers || []) if (!peer.destroyed) sendJSON(peer, msg);
+}
+
+function xqCreateParty(socket, st) {
+  if (!xqRoomsEnabled) return send(socket, { type: 'error', detail: 'physical games are not available right now' });
+  if (!socket.playerUid) return send(socket, { type: 'error', detail: 'sign in with your card to play with others' });
+  if (st.requested || st.room || st.partyRoom) return send(socket, { type: 'error', detail: 'this machine is busy' });
+  removeFromQueue(socket);
+  const room = createRoom(false, 'xiangqi');
+  room.noClock = true; // machine games are untimed
+  room.physical = true;
+  room.station = socket.kioskStation;
+  room.hostDevice = st.id;
+  seatPlayer(room, socket, 'A');
+  st.partyRoom = room;
+  room.partyTimer = setTimeout(() => xqExpireParty(room), PARTY_WAIT_MS);
+  room.partyTimer.unref();
+  console.log(`[party] ${room.code} created at ${st.id} (waits ${Math.round(PARTY_WAIT_MS / 1000)}s for a joiner)`);
+  send(socket, { type: 'room_created', code: room.code });
+}
+
+function xqExpireParty(room) {
+  if (rooms.get(room.code) !== room || room.createdByUs) return;
+  const host = room.players.A;
+  console.log(`[party] ${room.code} expired with no joiner`);
+  if (host && !host.destroyed) {
+    unseatPlayer(host); // frees the room, the machine and (via the empty-room path) the timer
+    send(host, { type: 'party_expired' });
+    send(host, { type: 'lobby' });
+  } else {
+    rooms.delete(room.code);
+    xqPartyDone(room);
+  }
+}
+
+async function xqJoinParty(socket, room) {
+  const st = xqPartyStation(socket, 'xiangqi');
+  const fail = (detail) => send(socket, { type: 'error', detail });
+  if (room.createdByUs || room.players.B) return fail('room full');
+  if (!st) return fail('join from a machine to play a physical game');
+  if (!xqRoomsEnabled) return fail('physical games are not available right now');
+  if (!socket.playerUid) return fail('sign in with your card to play with others');
+  if (st.id === room.hostDevice) return fail('your opponent has to be at the other machine');
+  if (st.requested || st.room || st.partyRoom) return fail('this machine is busy');
+  const host = room.players.A;
+  const hostSt = xqStationByDevice(room.hostDevice);
+  if (!host || host.destroyed || !hostSt) return fail('no such room');
+  removeFromQueue(socket);
+  clearTimeout(room.partyTimer);
+
+  // random sides: the host is red half the time
+  const hostIsRed = crypto.randomInt(2) === 0;
+  const red = hostIsRed ? { sock: host, st: hostSt } : { sock: socket, st };
+  const black = hostIsRed ? { sock: socket, st } : { sock: host, st: hostSt };
+  const person = (sock) => ({ playerName: sock.playerName || 'player', playerUid: sock.playerUid || null });
+  room.partyPlayers = { red: person(red.sock), black: person(black.sock) };
+  room.players = { A: room.partyPlayers.red, B: room.partyPlayers.black }; // A = red, B = black
+  // sockets leave the room (their kiosks watch it) but stay connected as a video pair
+  host.room = null;
+  host.playerLetter = null;
+  room.callPeers = [host, socket];
+  host.callRoom = room;
+  socket.callRoom = room;
+  room.stations = [red.st.id, black.st.id];
+  room.stationSides = { [red.st.id]: 'red', [black.st.id]: 'black' };
+  room.station = null; // no single owner: both kiosks match through `stations`
+  room.createdByUs = true;
+  room.setupState = 'requested';
+  room.started = false;
+  room.xqGameId = `web-${crypto.randomUUID()}`;
+  xqGames.set(room.xqGameId, room);
+  st.partyRoom = room;
+  console.log(`[party] ${room.code}: ${red.st.id} (red) vs ${black.st.id} (black) — asking the engine for room ${room.xqGameId}`);
+  xqPartyNotify(room, { type: 'station_game_requested' });
+  broadcastLobbyGames();
+
+  try {
+    await xqPost('/api/xiangqi/pvp/v1/website/rooms', {
+      room_id: room.xqGameId,
+      red_device: red.st.id,
+      black_device: black.st.id,
+      mode: process.env.XQ_GAME_MODE === 'simulation' ? 'simulation' : 'physical',
+      verify: process.env.XQ_PVP_VERIFY === 'squares' ? 'squares' : 'board',
+    });
+  } catch (err) {
+    console.warn(`[party] ${room.code}: engine create failed: ${err.message}`);
+    return xqFailParty(room, err.status === 409 ? 'busy' : 'unavailable');
+  }
+  room.apiCreated = true;
+  if (room.cancelled || rooms.get(room.code) !== room) {
+    // a player backed out while the create call was in flight
+    xqPost(`/api/xiangqi/games/${encodeURIComponent(room.xqGameId)}/abort`, { event_id: crypto.randomUUID() })
+      .catch((err) => console.warn(`[party] ${room.code}: late abort failed: ${err.message}`));
+    return;
+  }
+  room.setupState = 'setting_up';
+  // stations that never attach (not running, wrong mode) must not squat on the machines forever
+  room.setupTimer = setTimeout(() => {
+    if (room.started || rooms.get(room.code) !== room) return;
+    console.warn(`[party] ${room.code}: stations never started the game — timing out`);
+    xqPost(`/api/xiangqi/games/${encodeURIComponent(room.xqGameId)}/abort`, { event_id: crypto.randomUUID() })
+      .catch((err) => console.warn(`[party] ${room.code}: timeout abort failed: ${err.message}`));
+    xqFailParty(room, 'timeout');
+  }, XQ_SETUP_TIMEOUT_MS);
+  room.setupTimer.unref();
+}
+
+// The party never became a game (or was cancelled): tell both screens and free everything.
+function xqFailParty(room, reason) {
+  if (room.failed) return;
+  room.failed = true;
+  xqPartyNotify(room, { type: 'station_game_failed', reason });
+  if (rooms.get(room.code) === room) rooms.delete(room.code);
+  for (const peer of room.callPeers || []) if (peer.room === room) { peer.room = null; peer.playerLetter = null; }
+  const host = room.players.A;
+  if (host && host.room === room) {
+    // never paired: the host is still seated in a waiting party — send them back to the lobby
+    host.room = null;
+    host.playerLetter = null;
+    if (!host.destroyed) send(host, { type: 'lobby' });
+  }
+  xqPartyDone(room);
+  broadcastLobbyGames();
+}
+
+// Release the machines and the video pair once the party is over (finished, failed or never paired).
+function xqPartyDone(room) {
+  clearTimeout(room.partyTimer);
+  clearTimeout(room.setupTimer);
+  for (const st of xqStations) {
+    if (st.partyRoom === room) st.partyRoom = null;
+    if (st.room === room && !room.started) { st.room = null; st.gameId = null; }
+  }
+  if (room.xqGameId) xqGames.delete(room.xqGameId);
+  for (const peer of room.callPeers || []) if (peer.callRoom === room) peer.callRoom = null;
+}
+
 // Abort the website-started game on a kiosk's station (player left, session
 // ended, resign). Operator-started games are never aborted by us. If the arm
 // is mid-move the engine answers abort_pending and finishes after the move —
@@ -1440,8 +1606,17 @@ function xqFailRequest(st, reason) {
 function xqAbortStationGame(stationId, why) {
   const st = xqStationByDevice(XQ_STATION_MAP[stationId]);
   if (!st) return;
-  if (!st.requested && !(st.room && st.room.createdByUs)) return;
-  const gameId = st.gameId || st.expectedGameId;
+  if (!st.requested && !st.partyRoom && !(st.room && st.room.createdByUs)) return;
+  const party = st.partyRoom || (st.room && st.room.physical ? st.room : null);
+  if (party && !party.createdByUs) {
+    // still waiting for a joiner: nothing exists on the engine yet
+    return xqFailParty(party, 'aborted');
+  }
+  if (party && !party.apiCreated) {
+    party.cancelled = true; // the create call is in flight — the .then() aborts it
+    return xqFailParty(party, 'aborted');
+  }
+  const gameId = st.gameId || st.expectedGameId || (party && party.xqGameId);
   if (!gameId) {
     // create call still in flight — mark it dead locally; the watcher's
     // timeout/failed path will not resurrect it
@@ -1452,31 +1627,45 @@ function xqAbortStationGame(stationId, why) {
   // an explicit end on the player's own turn is a resignation — a recorded
   // loss is more honest than a null result. Outside their turn (or if the
   // turn moved on mid-click, 409), it's a plain abort.
-  const room = st.room;
-  const canResign = room && room.createdByUs && room.turn === (room.humanLetter || 'A');
-  xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/${canResign ? 'resign' : 'abort'}`,
-    { event_id: crypto.randomUUID() })
-    .then((res) => {
-      if (res.abort_pending) {
-        const kiosk = kioskFor(stationId);
-        if (kiosk) sendJSON(kiosk, { type: 'station_game_ending' });
-      }
-    })
+  const room = st.room || party;
+  // a party game: the leaving player's side resigns (the engine refuses before play starts,
+  // and while the arm is mid-step — both fall back to a plain abort below)
+  const pvpSide = party && party.stationSides ? party.stationSides[st.id] : null;
+  const canResign = party
+    ? !!(party.started && pvpSide)
+    : room && room.createdByUs && room.turn === (room.humanLetter || 'A');
+  const ending = (res) => {
+    if (res && res.abort_pending) {
+      const kiosk = kioskFor(stationId);
+      if (kiosk) sendJSON(kiosk, { type: 'station_game_ending' });
+    }
+  };
+  const abort = () => xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/abort`, { event_id: crypto.randomUUID() })
+    .then(ending)
+    .catch((err) => console.warn(`[xq] ${st.id}: abort failed: ${err.message}`));
+  if (!canResign) return abort();
+  // Leaving a two-machine game is a resignation. The engine refuses it (409) only while an arm is
+  // mid-step, which lasts seconds — so keep trying for a while before settling for a no-result abort.
+  // A bot game's resign is refused when it is no longer the player's turn: abort straight away there.
+  const resignId = crypto.randomUUID(); // one user action; a refused attempt records nothing
+  const body = pvpSide ? { event_id: resignId, side: pvpSide } : { event_id: resignId };
+  const tryResign = (attempt) => xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/resign`, body)
+    .then(ending)
     .catch((err) => {
-      if (canResign && err.status === 409) {
-        console.log(`[xq] ${st.id}: resign refused (turn moved on) — aborting instead`);
-        return xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/abort`, { event_id: crypto.randomUUID() })
-          .then((res) => {
-            if (res.abort_pending) {
-              const kiosk = kioskFor(stationId);
-              if (kiosk) sendJSON(kiosk, { type: 'station_game_ending' });
-            }
-          });
+      if (err.status === 409 && pvpSide && attempt < XQ_RESIGN_RETRIES) {
+        if (attempt === 0) console.log(`[xq] ${st.id}: resign waits for the arm to finish its step`);
+        return new Promise((r) => setTimeout(r, 2000)).then(() => tryResign(attempt + 1));
+      }
+      if (err.status === 409) {
+        console.log(`[xq] ${st.id}: resign refused — aborting instead`);
+        return abort();
       }
       console.warn(`[xq] ${st.id}: end-game call failed: ${err.message}`);
-    })
-    .catch((err) => console.warn(`[xq] ${st.id}: abort fallback failed: ${err.message}`));
+    });
+  return tryResign(0);
 }
+// ~30 s of retries: longer than any single Dobot step, short enough that a walk-away still ends the game
+const XQ_RESIGN_RETRIES = Number(process.env.XQ_RESIGN_RETRIES) || 15;
 
 // The watcher tracks a requested game by id until it starts (or dies).
 function xqApplyRequested(st, g) {
@@ -1557,7 +1746,9 @@ function xqApplyPvpStations(room, g) {
     const name = String(s.device_id).startsWith('guest-')
       ? 'Guest'
       : (xqStationByDevice(s.device_id) || {}).name || s.device_id;
-    room.players[s.side === 'black' ? 'B' : 'A'] = { playerName: name, playerUid: null };
+    // a party room knows who is sitting at each machine; the machine's name is only the fallback
+    room.players[s.side === 'black' ? 'B' : 'A'] = (room.partyPlayers && room.partyPlayers[s.side === 'black' ? 'black' : 'red'])
+      || { playerName: name, playerUid: null };
     room.stations.push(s.device_id);
     room.stationSides[s.device_id] = s.side;
   }
@@ -1567,7 +1758,12 @@ function xqApplyPvpStations(room, g) {
 function xqStartRoom(st, gameId, g) {
   // PvP rooms carry both stations with sides; a waiting_partner room has one.
   const isPvp = g.mode === 'pvp' && Array.isArray(g.stations);
-  const waiting = g.phase === 'waiting_partner';
+  // not playing yet: a PvP room waiting for its partner, or any game whose boards are still being set up
+  const waiting = g.phase === 'waiting_partner' || g.phase === 'setup';
+  // web- ids are only ever created by this website. After a restart we have no memory of the game, but it
+  // is still ours: take it back so its kiosks follow it again and its End-game button can end it —
+  // otherwise both machines stay "busy" with a game nobody controls.
+  const ours = String(gameId).startsWith('web-');
   const room = createRoom(!isPvp, 'xiangqi');
   room.noClock = true; // his engine has no clocks
   room.station = st.id;
@@ -1585,6 +1781,30 @@ function xqStartRoom(st, gameId, g) {
     room.players[humanLetter] = { playerName: st.name, playerUid: null };
     room.players[botLetter] = { playerName: 'robot', playerUid: null };
     room.stationSides = { [st.id]: g.human_side === 'black' ? 'black' : 'red' };
+    if (ours) {
+      room.station = XQ_DEVICE_TO_STATION[st.id] || st.id; // the KIOSK id, as for a fresh request
+      room.deviceId = st.id;
+      room.humanLetter = humanLetter;
+    }
+  }
+  if (ours) {
+    room.createdByUs = true;
+    room.setupState = waiting ? 'setting_up' : 'playing';
+    if (isPvp) {
+      room.physical = true;
+      room.xqGameId = gameId;
+      room.apiCreated = true;
+    }
+    if (waiting) {
+      // the setup timer died with the old process: one that never starts must still free the machines
+      room.setupTimer = setTimeout(() => {
+        if (room.started || rooms.get(room.code) !== room) return;
+        console.warn(`[xq] ${st.id}: recovered game ${gameId} never started — aborting it`);
+        xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/abort`, { event_id: crypto.randomUUID() })
+          .catch((err) => console.warn(`[xq] ${st.id}: abort of recovered game failed: ${err.message}`));
+      }, XQ_SETUP_TIMEOUT_MS);
+      room.setupTimer.unref();
+    }
   }
   room.started = !waiting;
   st.room = room;
@@ -1604,7 +1824,7 @@ function xqStartRoom(st, gameId, g) {
       });
     }
   }
-  console.log(`[xq] ${st.id}: watching game ${gameId} as room ${room.code} (${room.moves.length} moves so far${waiting ? ', waiting for opponent' : ''})`);
+  console.log(`[xq] ${st.id}: watching game ${gameId} as room ${room.code} (${room.moves.length} moves so far${waiting ? ', not started yet' : ''}${ours ? ', ours — recovered after a restart' : ''})`);
   broadcastLobbyGames(); // a new watchable game appeared
   if (!waiting) kioskAutoWatch(room); // the station's own screen follows its game
 }
@@ -1620,8 +1840,15 @@ function xqApplyState(st, g) {
   if (g.phase === 'playing' && g.updatedAt && Date.now() - Number(g.updatedAt) > staleMs) {
     // remember the dead game so we don't resurrect it on the next poll (his
     // device endpoint only stops reporting it when a game is FINISHED)
-    st.abandonedGames.set(st.gameId, g.updatedAt ?? null);
-    console.log(`[xq] ${st.id}: game ${st.gameId} stale for >${Math.round(XQ_STALE_MS / 60000)}min — abandoning`);
+    // (on every station: the other station of a shared PvP game must not re-adopt it either)
+    for (const other of xqStations) other.abandonedGames.set(st.gameId, g.updatedAt ?? null);
+    console.log(`[xq] ${st.id}: game ${st.gameId} stale for >${Math.round(staleMs / 60000)}min — abandoning`);
+    if (room.createdByUs && String(st.gameId).startsWith('web-')) {
+      // ours: end it on the engine too, or both machines stay claimed by a dead game and every new
+      // website game is refused as busy. Operator games are never ended by us.
+      xqPost(`/api/xiangqi/games/${encodeURIComponent(st.gameId)}/abort`, { event_id: crypto.randomUUID() })
+        .catch((err) => console.warn(`[xq] ${st.id}: abort of stale game failed: ${err.message}`));
+    }
     xqFinishRoom(st, {}, 'abandoned');
     return;
   }
@@ -1629,6 +1856,9 @@ function xqApplyState(st, g) {
   if (!room.started && g.phase === 'playing') {
     xqApplyPvpStations(room, g); // the second station appears only now
     room.started = true;
+    room.setupState = 'playing'; // a party room joins the lobby's live list now
+    room.turn = g.turn === 'black' ? 'B' : 'A';
+    clearTimeout(room.setupTimer);
     recordGameStart(room);
     room.moves = [];
     console.log(`[xq] ${st.id}: game ${st.gameId} started (opponent joined)`);
@@ -1696,6 +1926,11 @@ function xqFinishRoom(st, g, status) {
     rooms.delete(room.code);
   }
   console.log(`[xq] ${st.id}: game ${st.gameId} ${status} (winner ${winner || '—'})`);
+  if (room.physical) {
+    // aborted before play began: both screens are still on "setting up" and need to hear it
+    if (status !== 'over' && !room.started && !room.failed) xqPartyNotify(room, { type: 'station_game_failed', reason: 'aborted' });
+    xqPartyDone(room);
+  }
   xqGames.delete(st.gameId);
   st.room = null;
   st.gameId = null;
@@ -1836,6 +2071,7 @@ function startStationWatcher() {
     st.gameId = null;
     st.reachable = null;
     st.lastRecordedGameId = null;
+    st.partyRoom = null; // a website party (waiting for a joiner, or seated and setting up) holding this machine
     st.requested = null; // { key, room, socket } while a website game is pending
     st.expectedGameId = null; // the id his engine assigned to our request
     st.abandonedGames = new Map(); // gameId -> updatedAt when we gave up on it
@@ -2081,6 +2317,8 @@ function lobbyGames() {
     // website-requested games appear only once they're actually playing —
     // a "setting up" room is not watchable yet
     .filter((r) => !(r.createdByUs && r.setupState !== 'playing'))
+    // a party waiting for its joiner is not a game yet (it lives on a machine, not in the lobby)
+    .filter((r) => !(r.physical && !r.createdByUs))
     .map((r) => ({
       code: r.code,
       solo: r.solo,
@@ -2238,6 +2476,7 @@ function unseatPlayer(socket, { forfeit = false } = {}) {
     specSend(room, { type: 'spec_end' });
     if (room.gameId) recordGameOver(room, null, 'abandoned');
     rooms.delete(room.code);
+    if (room.physical && !room.createdByUs) xqPartyDone(room); // host left a waiting party
     console.log(`[room] destroyed ${room.code} (empty)`);
   }
   broadcastLobbyGames();
@@ -2296,6 +2535,9 @@ function handleClientMessage(socket, text) {
     }
     case 'create_room': {
       if (socket.room) return alreadyInRoom(socket);
+      // a machine's party is a real two-machine game: the website seats both stations when the joiner arrives
+      const partyStation = xqPartyStation(socket, msg.gameType);
+      if (partyStation) return xqCreateParty(socket, partyStation);
       removeFromQueue(socket);
       const room = createRoom(false, msg.gameType, msg.variant);
       // Time control chosen on the home screen; shared with the joiner via
@@ -2324,6 +2566,7 @@ function handleClientMessage(socket, text) {
       const room = rooms.get(code);
       if (!room) return send(socket, { type: 'error', detail: 'no such room' });
       if (room.solo) return send(socket, { type: 'error', detail: 'cannot join a solo game' });
+      if (room.physical) return xqJoinParty(socket, room);
       const letter = room.players.A ? (room.players.B ? null : 'B') : 'A';
       if (!letter) return send(socket, { type: 'error', detail: 'room full' });
       removeFromQueue(socket);
@@ -2382,7 +2625,10 @@ function handleClientMessage(socket, text) {
       console.log(`[kiosk] station ${id} registered (${kioskByStation.size} kiosk(s))`);
       // if its station already has a live game, attach immediately
       for (const room of rooms.values()) {
-        if (room.station === id && room.started) {
+        // a two-machine game names its machines in `stations` (device ids), not in `station`
+        const mine = room.station === id ||
+          (room.stations || []).some((d) => (XQ_DEVICE_TO_STATION[d] || d) === id);
+        if (mine && room.started) {
           kioskAutoWatch(room);
           break;
         }
@@ -2630,7 +2876,11 @@ function handleClientMessage(socket, text) {
     case 'emotion': {
       const room = socket.room;
       if (!room) {
-        console.log(`[relay] ${type} from lobby client, ignored`);
+        // players of a physical party stay out of the room (their kiosks watch it) but still call each other
+        const call = socket.callRoom;
+        const peer = call && call.callPeers.find((p) => p !== socket);
+        if (peer && !peer.destroyed) sendFrame(peer, 0x1, text);
+        else console.log(`[relay] ${type} from lobby client, ignored`);
         return;
       }
       const other = room.players[otherLetter(socket.playerLetter)];

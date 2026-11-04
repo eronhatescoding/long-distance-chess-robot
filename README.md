@@ -282,6 +282,35 @@ simulated solo game; unmapped stations keep the simulated game.
 - Write credentials: `XQ_WRITER_ID` / `XQ_WRITER_KEY` (default to the reader
   pair until his API issues a separate writer key).
 
+### Two-machine games (party code or friend challenge)
+
+Both players must be at a machine and signed in by a tap; a typed URL only
+spectates, and guests play the robot only. On a mapped kiosk, a xiangqi
+**Create party** / **Join party** (and a friend challenge, which carries the
+party code) is a real game between the two machines:
+
+1. The host's machine is held while the party waits for a joiner
+   (`PARTY_WAIT_MS`, default 10 min; then `party_expired`). Nothing exists on
+   the engine yet.
+2. When a player at the *other* machine joins, the website picks random sides
+   and calls `POST /api/xiangqi/pvp/v1/website/rooms` (writer key) to seat both
+   stations. Both kiosks get `station_game_requested`, then follow the game like
+   any station game (moves are mirrored by the arms; both cameras confirm each).
+   The two players' sockets keep a signalling path for the video call.
+3. **End game** on a kiosk resigns that player's side (retried for up to ~30 s
+   while an arm finishes a step, `XQ_RESIGN_RETRIES`), else aborts. Cancelling
+   during setup aborts the room on the engine.
+4. A setup that never starts is aborted after `XQ_SETUP_TIMEOUT_MS`. After a
+   website restart, a live `web-` game is taken back as ours (kiosks re-attach,
+   End game still works); a stale one is aborted on the engine so the machines
+   are freed.
+
+Needs an engine whose `/api/version` lists `features: ["website_rooms"]`; the
+stations run `--paired --website-only` (robots_arm runbook). `XQ_PVP_VERIFY=squares`
+selects the faster Dobot two-square check. Test with no hardware:
+`server/.smoke-party.js` (modes play, cancel, samestation, abort-setup, expire,
+leave-running + recover) against robots_arm's simulated stations.
+
 ### Confirmed contract facts (his answers, 3 Nov)
 
 - `online` = the station terminal's heartbeat (`POST /sync` within 20 s), not

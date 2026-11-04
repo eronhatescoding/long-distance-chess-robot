@@ -251,6 +251,18 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   const btnCamToggle = document.getElementById("btnCamToggle");
   let inRoom = false;
   let pendingGame = false; // created a party / queued for quick match, no opponent yet
+  // a machine game the website asked for is being set up (boards checked); ends on spec_state or failure
+  let stationSetup = false;
+  // server error details that have a translated message
+  const SERVER_ERROR_KEYS = {
+    "this machine is busy": "station.failed.busy",
+    "physical games are not available right now": "station.failed.unavailable",
+    "sign in with your card to play with others": "party.sign-in",
+    "your opponent has to be at the other machine": "party.other-machine",
+    "join from a machine to play a physical game": "party.from-machine",
+    "no such room": "party.no-room",
+    "room full": "party.full",
+  };
   let roomCode = null;
   let soloMode = false; // playing the robot: no video call, face is the opponent
   let roomGameType = "chess"; // from room_joined — picks the board renderer
@@ -497,6 +509,9 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     setInterval(() => {
       if (!playMode) { kioskLastActive = Date.now(); return; }
       if (inRoom && turnState) { kioskLastActive = Date.now(); return; } // mid-game
+      // waiting for a friend to join (the server closes the party after 10 min) or for the machines to
+      // set up the boards: the player is waiting on purpose, not walking away
+      if (pendingGame || stationSetup) { kioskLastActive = Date.now(); return; }
       // a live website-started machine game IS the player's activity — the
       // physical player never touches the screen; the game ends itself and
       // the lock resumes afterwards
@@ -528,6 +543,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   function resetRoomState() {
     inRoom = false;
     pendingGame = false;
+    stationSetup = false;
     roomCode = null;
     soloMode = false;
     opponentConnected = false;
@@ -584,10 +600,10 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       ? t("btn.endgame") // ending a website-started machine game aborts it
       : watching
         ? t("btn.stopwatch")
-        : pendingGame
+        : pendingGame || stationSetup
           ? t("btn.cancel")
           : t("btn.leave");
-    btnLeave.classList.toggle("hidden", !inRoom && !watching && !pendingGame);
+    btnLeave.classList.toggle("hidden", !inRoom && !watching && !pendingGame && !stationSetup);
   }
 
   /* ---------- face state tracking ---------- */
@@ -692,6 +708,13 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       showLobby(playMode ? "lobby.connected" : "lobby.connected-spec");
       if (!playMode) refreshWatchLists();
       updateStatus();
+    },
+
+    // nobody joined the machine party in time; the server already freed the machine
+    party_expired() {
+      pendingGame = false;
+      showLobby("lobby.party-expired");
+      renderConn();
     },
 
     room_created(msg) {
@@ -903,10 +926,16 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     // request and is setting the board up; play begins when the watcher
     // sees the game live (the kiosk auto-follows it like any station game).
     station_game_requested() {
+      // a party host stops "waiting for a friend" here: both machines are now being set up
+      pendingGame = false;
+      stationSetup = true;
       showLobby("station.setting-up");
+      renderConn();
     },
     station_game_failed(msg) {
-      const known = ["busy", "unavailable", "timeout", "camera_not_ready", "failed"];
+      stationSetup = false;
+      renderConn();
+      const known = ["busy", "unavailable", "timeout", "camera_not_ready", "failed", "aborted"];
       const key = known.includes(msg.reason) ? `station.failed.${msg.reason}` : "station.failed.failed";
       showLobby(key);
       renderKioskState();
@@ -941,10 +970,12 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
 
     error(msg) {
       console.warn("server error:", msg.detail);
+      const key = SERVER_ERROR_KEYS[msg.detail];
+      const text = key ? t(key) : msg.detail || "server error";
       if (!lobby.classList.contains("hidden")) {
-        lobbyStatus.textContent = msg.detail || "server error";
+        lobbyStatus.textContent = text;
       } else {
-        face.setMessage(msg.detail || "Server error");
+        face.setMessage(text);
       }
     },
   };
@@ -1148,6 +1179,11 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     resetClocks();
   });
   btnLeave.onclick = () => {
+    // a machine game still being set up: cancelling must end it on the machines too
+    if (stationSetup) {
+      send({ type: "station_game_abort" });
+      return;
+    }
     // station POV of a website-started game: leaving means ending the real
     // machine game, not just stopping watching
     if (watching && watching.createdByUs && stationPov) {
@@ -1805,7 +1841,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     games(msg) { renderLiveList(msg.games); },
     past_games(msg) { renderPastList(msg.games); },
     game(msg) { openReplay(msg); },
-    spec_state(msg) { enterSpectator(msg); },
+    spec_state(msg) { stationSetup = false; enterSpectator(msg); },
   });
 
   /* ---------- go ---------- */

@@ -6,6 +6,9 @@
 //   cancel    host creates then leaves -> lobby; machine is free (a second create works)
 //   samestation  a second player at the HOST's own machine cannot join
 //   abort-setup  guest ends the game while the boards are still being set up -> both hear station_game_failed
+//   abort-setup-late  the same, 1.5 s after pairing (engine room exists); then a new party must work
+//   call-reconnect  after pairing the guest's screen reloads: the host hears call_peer_left, both get a
+//             fresh call_peer, and signals reach the NEW screen
 //   leave-running  start a game, see a move, then quit WITHOUT ending it (then restart this server and run:)
 //   recover   after a server restart the running web- game is ours again: both kiosks follow it, ending it works,
 //             and the machines are free afterwards
@@ -100,8 +103,47 @@ async function main() {
   await Promise.all([host.wait('station_game_requested'), guest.wait('station_game_requested')]);
   check(true, 'both screens told the game is being set up (only after the joiner arrived)');
 
-  if (MODE === 'abort-setup') {
+  // video call: each screen learns its peer and role; red leads (impolite), black is polite
+  const [hc, gc] = await Promise.all([host.wait('call_peer'), guest.wait('call_peer')]);
+  check(hc.polite !== gc.polite && hc.name === 'Bob' && gc.name === 'Alice', `call roles and names (${hc.polite}/${gc.polite})`);
+  const relay = async (from, to, tag) => {
+    const before = to.count('signal');
+    from.send({ type: 'signal', data: { probe: tag } });
+    await sleep(400);
+    return to.events.filter((m) => m.type === 'signal').slice(before).some((m) => m.data && m.data.probe === tag);
+  };
+  check(await relay(host, guest, 'h1') && await relay(guest, host, 'g1'), 'video signalling relays both ways');
+
+  if (MODE === 'call-reconnect') {
+    guest.ws.close();
+    await host.wait('call_peer_left', 5000);
+    check(true, "host hears the guest's screen dropped");
+    host.events.length = 0;
+    const back = kiosk(3, 'Bob', 'uid-bob');
+    const [h2, b2] = await Promise.all([host.wait('call_peer', 8000), back.wait('call_peer', 8000)]);
+    check(h2.polite !== b2.polite, 'both screens get a fresh call_peer after the reconnect');
+    check(await relay(host, back, 'h2') && await relay(back, host, 'b2'), 'signals reach the reconnected screen');
+    back.send({ type: 'station_game_abort' });
+    await Promise.all([host.wait('call_end', 30000), back.wait('call_end', 30000)]);
+    check(true, 'the call ends with the game');
+    return;
+  }
+
+  if (MODE === 'abort-setup' || MODE === 'abort-setup-late') {
+    // late: cancel after the engine has created the room (the watcher may never see it before it ends)
+    if (MODE === 'abort-setup-late') await sleep(1500);
     guest.send({ type: 'station_game_abort' });
+    if (MODE === 'abort-setup-late') {
+      // a fast setup may already be playing by now: then it is a resignation; either way both screens hear it
+      const ended = (k) => Promise.race([k.wait('station_game_failed', 30000), k.wait('game_over', 30000)]);
+      const [a, b] = await Promise.all([ended(host), ended(guest)]);
+      check(a.type === b.type, `both screens hear the end (${a.type})`);
+      await sleep(3000);
+      host.events.length = 0;
+      host.send({ type: 'create_room', gameType: 'xiangqi' });
+      check(!!(await host.wait('room_created', 5000)).code, 'machines are free again');
+      return;
+    }
     const [a, b] = await Promise.all([host.wait('station_game_failed', 15000), guest.wait('station_game_failed', 15000)]);
     check(a.reason === 'aborted' && b.reason === 'aborted', 'both screens hear the setup was aborted');
     return;
@@ -130,6 +172,9 @@ async function main() {
   const over = await host.wait('game_over', 30000);
   await guest.wait('game_over', 30000);
   check(over.winner === (guestSide === 'red' ? 'B' : 'A'), `resigning player loses (winner ${over.winner}, Bob was ${guestSide})`);
+  await Promise.all([host.wait('call_end', 10000), guest.wait('call_end', 10000)]);
+  check(true, 'the video call ends with the game');
+  check(!(await relay(host, guest, 'after')), 'no signalling after the game');
 }
 
 // close sockets properly: a bare process.exit leaves the server holding dead seats until its heartbeat reaps them

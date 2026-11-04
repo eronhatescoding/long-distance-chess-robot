@@ -311,6 +311,43 @@ selects the faster Dobot two-square check. Test with no hardware:
 `server/.smoke-party.js` (modes play, cancel, samestation, abort-setup, expire,
 leave-running + recover) against robots_arm's simulated stations.
 
+**Video call.** Once paired, each kiosk gets `call_peer {polite, name}` (red
+leads the WebRTC negotiation, black is polite) and the server relays `signal`
+between the two screens. The camera stays opt-in (camera button); the board
+stays the main view and the view button switches to the opponent's video once
+it flows. `call_peer_left` / a fresh `call_peer` handle a screen reconnecting;
+`call_end` ends the call with the game.
+
+### Try a two-machine game on one laptop (no robots)
+
+Two browser windows play the two machine screens, robots_arm's simulator plays
+the stations and arms, and `curl` stands in for the card readers. Uses your real
+`.env` (Firebase) and the laptop camera for the video call.
+
+1. In robots_arm (any Python with its server requirements):
+   `python -m client.xiangqi.website_engine_sim /tmp/engine.json`
+   (keep it running; it prints `[engine] ready http://127.0.0.1:8093`).
+2. In this repo, add to `.env`: `STATION_A_SECRET=…`, `STATION_B_SECRET=…`,
+   `XQ_DEVICES=sim-station-a:Machine A,sim-station-b:Machine B`,
+   `XQ_STATION_MAP=STATION_A:sim-station-a,STATION_B:sim-station-b`,
+   `XQ_GAME_MODE=simulation`, plus `XQ_API_BASE`, `XQ_READER_ID/KEY` and
+   `XQ_WRITER_ID/KEY` copied from `/tmp/engine.json`. Then `node server/stub-server.js`.
+3. Give two of your test accounts a card each:
+   `npm run add-card -- CARD-A you@example.com` and `npm run add-card -- CARD-B friend@example.com`.
+4. Open `http://localhost:8080/game.html?station=STATION_A` and
+   `…?station=STATION_B` in two windows (localhost, so the camera is allowed).
+5. "Tap" each card at its machine:
+
+   ```bash
+   curl -X POST http://localhost:8080/tap -H "Content-Type: application/json" \
+     -d '{"stationId":"STATION_A","stationSecret":"<A secret>","cardId":"CARD-A","gameType":"xiangqi"}'
+   ```
+
+   and the same for `STATION_B` / `CARD-B`. Each window signs in by itself.
+6. Window A: **Create party**. Window B: **Join party** with the code. Both show
+   "setting up", then the board; the simulator's players start moving. Press the
+   camera button in either window to start the video call.
+
 ### Confirmed contract facts (his answers, 3 Nov)
 
 - `online` = the station terminal's heartbeat (`POST /sync` within 20 s), not

@@ -126,6 +126,7 @@ const DICTS = {
     "kiosk.guest2": "or play as guest on this screen",
 
     // in-game view toggle
+    "view.video": "show video",
     "view.board": "show board",
     "view.face": "show face",
 
@@ -404,6 +405,7 @@ const DICTS = {
     "kiosk.guest-back": "← 返回",
     "kiosk.guest2": "或以访客身份在此屏幕上玩",
 
+    "view.video": "查看视频",
     "view.board": "查看棋盘",
     "view.face": "查看表情",
 

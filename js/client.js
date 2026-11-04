@@ -255,6 +255,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   let stationSetup = false;
   // the waiting party is a machine party: the server closes it after 10 min, so the idle lock may wait
   let pendingPhysical = false;
+  let remoteVideoOn = false; // the opponent's camera is streaming (a party game's base layer can show it)
   // server error details that have a translated message
   const SERVER_ERROR_KEYS = {
     "this machine is busy": "station.failed.busy",
@@ -905,6 +906,45 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       videoCall.handleSignal(msg.data);
     },
 
+    // A machine party paired this screen with the other machine's: the video call becomes available
+    // (still opt-in — the camera only starts on the camera button). Sent again after a reconnect, so drop
+    // any old connection and renegotiate if our camera is already running.
+    call_peer(msg) {
+      videoCall.hangup();
+      remoteVideoOn = false;
+      videoCall.polite = !!msg.polite;
+      videoCall.peerAvailable = true;
+      btnCamToggle.classList.remove("hidden");
+      if (videoCall.isActive()) {
+        videoCall.start().catch((err) => face.setMessage("Camera: " + err.message));
+      } else {
+        btnCamToggle.classList.add("off");
+        pipWrap.classList.remove("hidden");
+        pipWrap.classList.add("cam-off");
+        videoCall.onMediaState?.({ camOn: false, micOn: false, active: false });
+      }
+    },
+    // the other screen dropped: hang up, keep our camera; a fresh call_peer arrives when it returns
+    call_peer_left() {
+      videoCall.hangup();
+      remoteVideoOn = false;
+      if (baseMode === "video") {
+        setBaseMode(watching ? "board" : "face");
+        btnBoardView.textContent = t(watching ? "view.face" : "view.board");
+      }
+    },
+    // the party is over: end the call and turn the camera off
+    call_end() {
+      videoCall.peerAvailable = false;
+      videoCall.stop();
+      remoteVideoOn = false;
+      btnCamToggle.classList.add("hidden");
+      if (baseMode === "video") {
+        setBaseMode(watching ? "board" : "face");
+        btnBoardView.textContent = t(watching ? "view.face" : "view.board");
+      }
+    },
+
     // The tap session ended elsewhere (app Disconnect, grace timeout, or the
     // max lifetime sweep): drop any game and lock back to spectator.
     session_end() {
@@ -1082,7 +1122,15 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     boardLayer.classList.toggle("hidden", mode !== "board");
   }
 
-  videoCall.onRemoteStream = () => setBaseMode("video");
+  videoCall.onRemoteStream = () => {
+    remoteVideoOn = true;
+    // a machine game keeps the board up: the opponent's video is one tap away on the view button
+    if (watching && stationPov) {
+      btnBoardView.textContent = t(baseMode === "board" ? "view.video" : "view.board");
+      return;
+    }
+    setBaseMode("video");
+  };
   videoCall.onPeerStateChange = (state) => {
     callState = state;
     renderConn();
@@ -1892,7 +1940,9 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   // in-game face/board view toggle (the board shows the live position)
   btnBoardView.onclick = () => {
     if (baseMode === "board") {
-      setBaseMode("face");
+      // in a machine party with the opponent's camera on, the other view is their video
+      const next = watching && stationPov && remoteVideoOn ? "video" : "face";
+      setBaseMode(next);
       btnBoardView.textContent = t("view.board");
     } else {
       setBaseMode("board");

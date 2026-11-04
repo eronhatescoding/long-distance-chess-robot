@@ -1532,6 +1532,12 @@ async function xqJoinParty(socket, room) {
   room.callPeers = [host, socket];
   host.callRoom = room;
   socket.callRoom = room;
+  // video: red leads the negotiation (impolite), black is polite — the same roles A/B have in virtual rooms
+  room.callRoles = {
+    [red.sock.kioskStation]: { polite: false, peer: room.partyPlayers.black.playerName },
+    [black.sock.kioskStation]: { polite: true, peer: room.partyPlayers.red.playerName },
+  };
+  xqCallAnnounce(room);
   room.stations = [red.st.id, black.st.id];
   room.stationSides = { [red.st.id]: 'red', [black.st.id]: 'black' };
   room.station = null; // no single owner: both kiosks match through `stations`
@@ -1607,7 +1613,20 @@ function xqPartyDone(room) {
     if (st.room === room && !room.started) { st.room = null; st.gameId = null; }
   }
   if (room.xqGameId) xqGames.delete(room.xqGameId);
-  for (const peer of room.callPeers || []) if (peer.callRoom === room) peer.callRoom = null;
+  for (const peer of room.callPeers || []) {
+    if (peer.callRoom !== room) continue;
+    peer.callRoom = null;
+    if (!peer.destroyed) sendJSON(peer, { type: 'call_end' });
+  }
+}
+
+// Tell both screens of a paired party who they are calling and which role they take. Sent at pairing and
+// again when one screen reconnects, so both sides drop the old connection and negotiate afresh.
+function xqCallAnnounce(room) {
+  for (const peer of room.callPeers || []) {
+    const role = room.callRoles && room.callRoles[peer.kioskStation];
+    if (role && !peer.destroyed) sendJSON(peer, { type: 'call_peer', polite: role.polite, name: role.peer });
+  }
 }
 
 // Abort the website-started game on a kiosk's station (player left, session
@@ -1623,8 +1642,10 @@ function xqAbortStationGame(stationId, why) {
     // still waiting for a joiner: nothing exists on the engine yet
     return xqFailParty(party, 'aborted');
   }
-  if (party && !party.apiCreated) {
-    party.cancelled = true; // the create call is in flight — the .then() aborts it
+  if (party && !party.started) {
+    // Not playing yet: clean up here, never wait for the watcher — an engine room aborted during setup may
+    // never be seen by it, which would leave both machines held. xqFailParty also aborts it on the engine.
+    if (!party.apiCreated) party.cancelled = true; // create call in flight — its .then() aborts it too
     return xqFailParty(party, 'aborted');
   }
   const gameId = st.gameId || st.expectedGameId || (party && party.xqGameId);
@@ -2650,6 +2671,14 @@ function handleClientMessage(socket, text) {
         sendJSON(prev, { type: 'kiosk_replaced' });
       }
       kioskByStation.set(id, socket);
+      for (const room of rooms.values()) {
+        if (!room.callPeers || !room.callRoles || !room.callRoles[id]) continue;
+        const i = room.callPeers.findIndex((p) => p.kioskStation === id && p !== socket);
+        if (i === -1) continue;
+        room.callPeers[i] = socket; // the old socket is gone or displaced: this screen is the call peer now
+        socket.callRoom = room;
+        xqCallAnnounce(room);
+      }
       console.log(`[kiosk] station ${id} registered (${kioskByStation.size} kiosk(s))`);
       // if its station already has a live game, attach immediately
       for (const room of rooms.values()) {
@@ -2981,6 +3010,10 @@ server.on('upgrade', (req, socket) => {
     }
     removeFromQueue(socket);
     detachSpectator(socket);
+    if (socket.callRoom) {
+      const peer = socket.callRoom.callPeers.find((p) => p !== socket);
+      if (peer && !peer.destroyed) sendJSON(peer, { type: 'call_peer_left' });
+    }
     unseatPlayer(socket);
     // A tapped-in browser that vanishes gets a grace window (phones background
     // tabs constantly); if it never re-links its session, the session ends so

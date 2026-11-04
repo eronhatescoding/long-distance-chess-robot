@@ -1,0 +1,10 @@
+# secrets — never commit these
+.env
+server/service-account.json
+server/stations.json
+
+# dependencies
+node_modules/
+
+# misc
+*.log

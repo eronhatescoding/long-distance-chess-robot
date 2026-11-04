@@ -1,0 +1,86 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.18, 1.3, 0.35, 1)",
+        "createdAt": "2026-09-21T05:52:27.956Z",
+        "reason": "Claude's call: the single authored moment is the win/lose result stamping onto the board like a dropped game piece; a small overshoot is the brief's pinned toy-tabletop physics, not decorative bounce."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "game.css"
+        ],
+        "createdAt": "2026-09-21T05:52:40.270Z",
+        "reason": "Claude's call: dark-brown inset shadow modelling the thick board rim casting onto the play surface, not a chromatic halo."
+      },
+      {
+        "rule": "clipped-overflow-container",
+        "value": "*",
+        "files": [
+          "game.css"
+        ],
+        "createdAt": "2026-09-21T05:52:40.826Z",
+        "reason": "Claude's call: pre-existing html/body overflow:hidden; fixed-viewport fullscreen game with no scrolling document and no escaping popovers."
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "face.css"
+        ],
+        "createdAt": "2026-09-21T05:52:41.447Z",
+        "reason": "Claude's call: the robot character's pupils darting while it thinks; domain-appropriate character motion in pre-existing face.css the redesign was told not to change."
+      },
+      {
+        "rule": "repeating-stripes-gradient",
+        "value": "*",
+        "files": [
+          "game.css"
+        ],
+        "createdAt": "2026-09-21T05:52:42.031Z",
+        "reason": "Claude's call: irregular repeating gradient is the wooden table's grain; the brief pins 'slight texture rather than completely flat UI'."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "game.html"
+        ],
+        "createdAt": "2026-09-21T05:53:03.486Z",
+        "reason": "Claude's call: dark-brown inset shadow modelling the thick board rim casting onto the play surface, not a chromatic halo."
+      },
+      {
+        "rule": "clipped-overflow-container",
+        "value": "*",
+        "files": [
+          "game.html"
+        ],
+        "createdAt": "2026-09-21T05:53:04.241Z",
+        "reason": "Claude's call: pre-existing html/body overflow:hidden; fixed-viewport fullscreen game with no scrolling document and no escaping popovers."
+      },
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "game.html"
+        ],
+        "createdAt": "2026-09-21T05:53:04.909Z",
+        "reason": "Claude's call: the robot's pupils darting while it thinks, from pre-existing face.css; domain-appropriate character motion the redesign was told not to change."
+      },
+      {
+        "rule": "repeating-stripes-gradient",
+        "value": "*",
+        "files": [
+          "game.html"
+        ],
+        "createdAt": "2026-09-21T05:53:05.677Z",
+        "reason": "Claude's call: irregular repeating gradient is the wooden table's grain; the brief pins 'slight texture rather than completely flat UI'."
+      }
+    ]
+  }
+}

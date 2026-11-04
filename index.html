@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Face</title>
+    <link rel="stylesheet" href="face.css">
+    <base target="_blank">
+</head>
+
+<body>
+    <div class="stage state-idle" id="stage">
+        <div class="glow"></div>
+        <div class="face">
+            <div class="eyes-row">
+                <div class="eye">
+                    <div class="pupil"></div>
+                </div>
+                <div class="eye right">
+                    <div class="pupil"></div>
+                </div>
+            </div>
+            <svg class="mouth" viewBox="0 0 100 40">
+                <path id="m-flat" d="M15,20 L85,20" />
+                <path id="m-smile" d="M12,12 Q50,42 88,12" />
+                <path id="m-small" d="M22,16 Q50,30 78,16" />
+                <path id="m-frown" d="M12,28 Q50,-2 88,28" />
+                <path id="m-open" d="M32,20 a18,13 0 1,0 36,0 a18,13 0 1,0 -36,0" />
+            </svg>
+        </div>
+        <div class="banner">
+            <div class="state-label" id="stateLabel">Idle</div>
+            <div class="message" id="message"></div>
+        </div>
+    </div>
+
+    <div class="devpanel" id="devpanel">
+        <h4>Dev controls — press D to hide</h4>
+        <div id="devbuttons"></div>
+    </div>
+
+    <script type="module" src="face.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "robot-chess",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Long-distance robot chess — game client, game server, and tap-to-play endpoint",
+  "scripts": {
+    "start": "node server/stub-server.js",
+    "add-card": "node server/add-card.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0"
+  }
+}

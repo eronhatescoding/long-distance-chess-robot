@@ -1,0 +1,3834 @@
+/* ============================================================
+   ROBOT CHESS — TABLETOP EDITION
+   A handcrafted board-game world: a printed hex board on a wooden
+   table, cream number-token plaques, and chunky moulded plastic
+   pieces that sit ON the board rather than float above it.
+
+   Depth comes from three stacked facts, never from a costume:
+     1. an extruded side wall (short, dark, the material's own edge)
+     2. a soft cast shadow with real blur (the light in the room)
+     3. a top bevel (the moulding's rounded lip)
+
+   Every id, state class and hook used by js/client.js is preserved.
+   ============================================================ */
+
+:root {
+    /* table */
+    --table-hi: #a06c40;
+    --table: #8c5a30;
+    --table-lo: #6b4020;
+
+    /* board rim (the thick printed cardboard edge) */
+    --rim: #7a4a28;
+    --rim-hi: #a3703f;
+    --rim-lo: #4f2f18;
+
+    /* cream stock — number tokens, plaques, cards */
+    --plaque: #fdf6e6;
+    --plaque-2: #f3e5c9;
+    --plaque-edge: #c2a674;
+    --plaque-side: #b1946a;
+
+    /* ink */
+    --ink: #3d2e1d;
+    --ink-soft: #6f5a3e;
+
+    /* terrain — muted moulded plastic, never neon */
+    --leaf: #5b9a46;
+    --leaf-lo: #3a6a2c;
+    --grass: #8fc46a;
+    --wheat: #eec95c;
+    --wheat-lo: #b08722;
+    --clay: #cf7442;
+    --clay-lo: #984b23;
+    --stone: #a7b0b8;
+    --stone-lo: #6f7982;
+    --sand: #e3c791;
+    --sea: #3f86b8;
+    --sea-lo: #24587f;
+    --red: #c2452f;
+    --red-lo: #8e2d1d;
+
+    /* light */
+    --cast-s: 0 0.8vmin 1.6vmin rgba(48, 28, 12, 0.32);
+    --cast-m: 0 1.4vmin 2.6vmin rgba(48, 28, 12, 0.36);
+    --cast-l: 0 2.4vmin 4.4vmin rgba(38, 22, 10, 0.44);
+
+    --hex: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+
+    /* face component overrides for this page — face.css ships neon
+       defaults that do not belong in a wooden-table world */
+    --bg: #f6ead0;
+    --accent: #43d4bd;
+    --warn: #ef8a5c;
+    --win: #8fd66a;
+}
+
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+    font-family: "Fredoka", "Segoe UI", system-ui, sans-serif;
+    color: var(--ink);
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* the wooden table the board is lying on */
+body {
+    background:
+        radial-gradient(ellipse 80% 60% at 50% 22%, rgba(255, 232, 190, 0.22), transparent 70%),
+        repeating-linear-gradient(97deg,
+            rgba(255, 240, 210, 0.05) 0 3px,
+            rgba(60, 34, 14, 0.06) 3px 7px,
+            transparent 7px 46px),
+        linear-gradient(165deg, var(--table-hi), var(--table) 55%, var(--table-lo));
+}
+
+/* ---------- browser surfaces wear the world too ---------- */
+::selection {
+    background: var(--wheat);
+    color: var(--ink);
+}
+
+:focus-visible {
+    outline: 0.4vmin solid var(--wheat);
+    outline-offset: 0.35vmin;
+    border-radius: 0.6vmin;
+}
+
+/* ============================================================
+   THE BOARD — printed hex tiles, laid flat and seen from slightly
+   above. z-index 0: everything else sits on top of it.
+   ============================================================ */
+.board-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    perspective: 160vmin;
+    perspective-origin: 50% 38%;
+    pointer-events: none;
+}
+
+.board-plane {
+    position: absolute;
+    inset: -16% -10%;
+    background: url("assets/hexboard.svg") center / cover no-repeat;
+    transform-origin: 50% 44%;
+    /* the slight top-down tilt that makes it a table, not a wallpaper */
+    transform: rotateX(15deg) scale(1.04);
+    animation: board-settle 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes board-settle {
+    from {
+        transform: rotateX(15deg) scale(1.16);
+        opacity: 0;
+        filter: blur(6px);
+    }
+
+    to {
+        transform: rotateX(15deg) scale(1.04);
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+/* room light falling across the table */
+.board-vignette {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 70% 55% at 50% 40%, rgba(255, 238, 205, 0.20), transparent 68%),
+        radial-gradient(ellipse 120% 95% at 50% 46%, transparent 42%, rgba(40, 22, 8, 0.52) 100%);
+}
+
+/* the injected SVG fills the tilted plane exactly like the static image did */
+.board-plane svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* a living board: some tiles slowly rise and settle back down */
+.board-plane .tile.bob {
+    transform-box: fill-box;
+    animation: tile-bob var(--bob-dur, 7s) ease-in-out infinite;
+    animation-delay: var(--bob-delay, 0s);
+}
+
+@keyframes tile-bob {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-14px); /* SVG units — a gentle chunky lift */
+    }
+}
+
+/* wind streaks drifting across the board (lobby only) */
+.wind {
+    position: absolute;
+    width: 22vmin;
+    height: 1.4vmin;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.55);
+    filter: blur(0.8vmin);
+    opacity: 0;
+    pointer-events: none;
+    animation: wind-drift 9s linear infinite;
+}
+
+.wind.w1 {
+    top: 16%;
+    animation-duration: 9s;
+}
+
+.wind.w2 {
+    top: 34%;
+    width: 15vmin;
+    animation-duration: 12s;
+    animation-delay: 3.2s;
+}
+
+.wind.w3 {
+    top: 58%;
+    width: 27vmin;
+    animation-duration: 10.5s;
+    animation-delay: 6s;
+}
+
+.wind.w4 {
+    top: 78%;
+    width: 13vmin;
+    animation-duration: 13s;
+    animation-delay: 1.6s;
+}
+
+@keyframes wind-drift {
+    0% {
+        transform: translateX(-30vw) translateY(0);
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 0.5;
+    }
+
+    55% {
+        opacity: 0.32;
+    }
+
+    90% {
+        opacity: 0.5;
+    }
+
+    100% {
+        transform: translateX(125vw) translateY(-3vmin);
+        opacity: 0;
+    }
+}
+
+
+/* ============================================================
+   BASE LAYERS — robot face OR remote video, never both
+   ============================================================ */
+.base {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+}
+
+.base.hidden {
+    display: none;
+}
+
+/* the face's stage is transparent: the board shows through */
+.base-face .stage {
+    background: none;
+}
+
+/* while the lobby is open the robot face is put back in the box, so the
+   lobby reads against the bare board instead of a face behind glass */
+body:has(#lobby:not(.hidden)) .base-face,
+body:has(#lobby:not(.hidden)) .deco-layer {
+    display: none;
+}
+
+/* face.css's ambient blur becomes the big cream centre tile — the robot's
+   moulded head, a real hexagon with a rim */
+.base-face .glow {
+    width: 86vmin;
+    height: 86vmin;
+    border-radius: 0;
+    clip-path: var(--hex);
+    background: linear-gradient(170deg, var(--plaque-edge), var(--plaque-side));
+    filter:
+        drop-shadow(0 1.4vmin 0 rgba(70, 44, 18, 0.55))
+        drop-shadow(0 3vmin 3.4vmin rgba(38, 22, 10, 0.5));
+    transition: none;
+}
+
+.base-face .glow::after {
+    content: "";
+    position: absolute;
+    inset: 1.5vmin;
+    clip-path: var(--hex);
+    background:
+        radial-gradient(ellipse 75% 60% at 50% 28%, rgba(255, 255, 255, 0.85), transparent 62%),
+        linear-gradient(168deg, var(--plaque), var(--plaque-2));
+}
+
+/* the dark screen set into the head. Bright features on a dark panel is
+   what makes the expression readable across a room. */
+.base-face .glow::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 64vmin;
+    height: 46vmin;
+    transform: translate(-50%, -50%);
+    border-radius: 9vmin;
+    background:
+        radial-gradient(ellipse 80% 70% at 50% 18%, rgba(90, 116, 132, 0.55), transparent 70%),
+        linear-gradient(170deg, #2e404a, #1b2830);
+    box-shadow:
+        inset 0 0 0 1vmin #8f9aa3,
+        inset 0 0 0 1.5vmin #5f6a73,
+        inset 0 2vmin 3vmin rgba(0, 0, 0, 0.55),
+        inset 0 -1vmin 2vmin rgba(255, 255, 255, 0.07);
+    z-index: 1;
+}
+
+/* ---------- the robot's features ---------- */
+.base-face .face {
+    z-index: 2;
+    filter: drop-shadow(0 0.6vmin 1vmin rgba(0, 0, 0, 0.45));
+}
+
+.base-face .eye {
+    border: 0.7vmin solid #121c22;
+    box-shadow:
+        inset 0 -1.4vmin 1.8vmin rgba(0, 0, 0, 0.3),
+        inset 0 1.4vmin 1.6vmin rgba(255, 255, 255, 0.5),
+        0 0 3vmin color-mix(in srgb, var(--accent) 45%, transparent);
+    /* no width/height here: the happy-state size change would animate
+       layout every time the robot smiles */
+    transition: background 0.35s, transform 0.35s, box-shadow 0.35s;
+}
+
+.base-face .pupil {
+    background: #101b21;
+    transition: opacity 0.25s;
+}
+
+.base-face .mouth path {
+    stroke-width: 8;
+}
+
+/* antenna on top of the head */
+.bot-antenna {
+    position: absolute;
+    top: -15vmin;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 1.6vmin;
+    height: 8vmin;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #6f7982, #aab3ba 45%, #6f7982);
+}
+
+.bot-antenna i {
+    position: absolute;
+    top: -3.6vmin;
+    left: 50%;
+    width: 4.8vmin;
+    height: 4.8vmin;
+    transform: translateX(-50%);
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #ffb98f, var(--clay) 55%, #8f4620);
+    box-shadow: inset 0 -0.6vmin 0.9vmin rgba(0, 0, 0, 0.35);
+}
+
+/* brows — the single strongest readability cue for mood */
+.brow {
+    position: absolute;
+    top: -3.2vmin;
+    width: 15vmin;
+    height: 2.7vmin;
+    border-radius: 999px;
+    background: var(--accent);
+    opacity: 0;
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s, background 0.35s;
+}
+
+.brow-l {
+    left: calc(50% - 23vmin);
+}
+
+.brow-r {
+    right: calc(50% - 23vmin);
+}
+
+/* sweat bead — only ever appears when the robot is rattled */
+.sweat {
+    position: absolute;
+    top: -9vmin;
+    right: calc(50% - 38vmin);
+    width: 4.6vmin;
+    height: 4.6vmin;
+    border-radius: 0 50% 50% 50%;
+    transform: rotate(-45deg) scale(0);
+    background: radial-gradient(circle at 34% 30%, #dff4ff, #7fc9e8 55%, #3f93bd);
+    box-shadow: inset 0 -0.5vmin 0.7vmin rgba(0, 0, 0, 0.2);
+    opacity: 0;
+}
+
+/* remote video sits in the board like an inset screen */
+.base-video {
+    background: #24170d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5vmin;
+}
+
+.base-video video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 2.4vmin;
+    box-shadow:
+        inset 0 0 0 0.9vmin var(--rim),
+        inset 0 0 0 1.3vmin var(--rim-lo),
+        0 2vmin 4vmin rgba(0, 0, 0, 0.55);
+}
+
+/* ============================================================
+   THE TWO STATES THAT MATTER: whose turn is it?
+   Read from across the room, from three independent signals —
+   colour, brow shape, and whether the robot is sweating.
+   ============================================================ */
+
+/* ---------- YOUR TURN: the robot is scared of what you'll do ---------- */
+.base-face .state-your_turn {
+    --accent: #f7b73f;
+}
+
+/* eyes blown wide */
+.base-face .state-your_turn .eye {
+    animation: scared-eyes 0.55s infinite ease-in-out;
+    transform: scale(1.14);
+}
+
+/* pupils shrunk to pinpricks and darting */
+.base-face .state-your_turn .pupil {
+    width: 24%;
+    height: 24%;
+    animation: look 0.52s infinite ease-in-out;
+}
+
+/* brows shoved up and tilted outward — the classic worried arch */
+.base-face .state-your_turn .brow {
+    opacity: 1;
+    animation: brow-jitter 0.55s infinite ease-in-out;
+}
+
+.base-face .state-your_turn .brow-l {
+    transform: translateY(-2.2vmin) rotate(-20deg);
+}
+
+.base-face .state-your_turn .brow-r {
+    transform: translateY(-2.2vmin) rotate(20deg);
+}
+
+/* wavering mouth instead of the neutral curve face.js selected */
+.base-face .state-your_turn .mouth path {
+    opacity: 0;
+}
+
+.base-face .state-your_turn #m-worried {
+    opacity: 1;
+    animation: mouth-waver 0.7s infinite ease-in-out;
+}
+
+.base-face .state-your_turn .sweat {
+    animation: sweat-drip 1.9s infinite ease-in;
+}
+
+.base-face .state-your_turn .face {
+    animation: tremble 0.13s infinite linear;
+}
+
+.base-face .state-your_turn .bot-antenna i {
+    animation: alarm-bulb 0.55s infinite ease-in-out;
+}
+
+@keyframes scared-eyes {
+    0%,
+    100% {
+        transform: scale(1.14);
+    }
+
+    50% {
+        transform: scale(1.22);
+    }
+}
+
+@keyframes brow-jitter {
+    0%,
+    100% {
+        margin-top: 0;
+    }
+
+    50% {
+        margin-top: -0.7vmin;
+    }
+}
+
+@keyframes mouth-waver {
+    0%,
+    100% {
+        transform: translateX(-1.5%);
+    }
+
+    50% {
+        transform: translateX(1.5%);
+    }
+}
+
+@keyframes tremble {
+    0% {
+        transform: translate(0.35vmin, 0);
+    }
+
+    25% {
+        transform: translate(-0.3vmin, 0.25vmin);
+    }
+
+    50% {
+        transform: translate(0.25vmin, -0.3vmin);
+    }
+
+    75% {
+        transform: translate(-0.35vmin, -0.2vmin);
+    }
+
+    100% {
+        transform: translate(0.3vmin, 0.3vmin);
+    }
+}
+
+@keyframes sweat-drip {
+    0% {
+        opacity: 0;
+        transform: rotate(-45deg) scale(0.3) translate(0, 0);
+    }
+
+    18% {
+        opacity: 1;
+        transform: rotate(-45deg) scale(1) translate(0, 0);
+    }
+
+    62% {
+        opacity: 1;
+        transform: rotate(-45deg) scale(1) translate(2.6vmin, 2.6vmin);
+    }
+
+    100% {
+        opacity: 0;
+        transform: rotate(-45deg) scale(0.8) translate(6vmin, 6vmin);
+    }
+}
+
+@keyframes alarm-bulb {
+    0%,
+    100% {
+        filter: brightness(1);
+    }
+
+    50% {
+        filter: brightness(1.6);
+    }
+}
+
+/* ---------- ROBOT'S TURN: wide-eyed, fascinated pondering ----------
+   Same family as your_turn's scared stare — big round eyes, raised brows,
+   moving pupils — but calm and slow: curiosity, not fear. */
+.base-face .state-thinking {
+    --accent: #43d4bd;
+}
+
+/* eyes blown wide like the scared stare, with a slow fascinated pulse */
+.base-face .state-thinking .eye {
+    animation: fascinated-eyes 2.4s infinite ease-in-out;
+    transform: scale(1.16);
+}
+
+/* pupils stay dilated with interest and drift upward, searching */
+.base-face .state-thinking .pupil {
+    animation: ponder-look 3.6s infinite ease-in-out;
+}
+
+/* raised curious brows — the worried arch, softened and slowed */
+.base-face .state-thinking .brow {
+    opacity: 1;
+    animation: brow-bob 2.4s infinite ease-in-out;
+}
+
+.base-face .state-thinking .brow-l {
+    transform: translateY(-1.8vmin) rotate(-14deg);
+}
+
+.base-face .state-thinking .brow-r {
+    transform: translateY(-1.8vmin) rotate(14deg);
+}
+
+/* a slow head sway, like someone tilting their head over the board */
+.base-face .state-thinking .face {
+    animation: ponder-sway 5s infinite ease-in-out;
+}
+
+.base-face .state-thinking .bot-antenna i {
+    animation: think-bulb 1.9s infinite ease-in-out;
+}
+
+@keyframes fascinated-eyes {
+    0%,
+    100% {
+        transform: scale(1.16);
+    }
+
+    50% {
+        transform: scale(1.24);
+    }
+}
+
+@keyframes ponder-look {
+    0%,
+    100% {
+        transform: translate(-66%, -62%);
+    }
+
+    35% {
+        transform: translate(-50%, -68%);
+    }
+
+    70% {
+        transform: translate(-34%, -62%);
+    }
+}
+
+@keyframes brow-bob {
+    0%,
+    100% {
+        margin-top: 0;
+    }
+
+    50% {
+        margin-top: -0.5vmin;
+    }
+}
+
+@keyframes ponder-sway {
+    0%,
+    100% {
+        transform: rotate(-2deg);
+    }
+
+    50% {
+        transform: rotate(2deg);
+    }
+}
+
+@keyframes think-bulb {
+    0%,
+    100% {
+        filter: brightness(0.75);
+    }
+
+    50% {
+        filter: brightness(1.25);
+    }
+}
+
+/* happy/win turn the eyes into arcs: restore that, since the moulded rim
+   above would otherwise flatten them into thin dark lines */
+.base-face .state-happy .eye,
+.base-face .state-win .eye {
+    border: none;
+    border-top: 3vmin solid var(--accent);
+    box-shadow: none;
+}
+
+/* ---------- the remaining states keep brows, drop the sweat ---------- */
+.base-face .state-sad .brow,
+.base-face .state-lose .brow {
+    opacity: 1;
+}
+
+.base-face .state-sad .brow-l,
+.base-face .state-lose .brow-l {
+    transform: translateY(1.2vmin) rotate(14deg);
+}
+
+.base-face .state-sad .brow-r,
+.base-face .state-lose .brow-r {
+    transform: translateY(1.2vmin) rotate(-14deg);
+}
+
+/* Face banner: caption plates below the head. Both carry their own dark
+   ground — the banner floats over whatever the board or the cream head
+   happens to put behind it, so bare text disappears at certain heights. */
+.stage .state-label {
+    display: inline-block;
+    color: #f7e2b6;
+    font-weight: 700;
+    font-size: 1.9vmin;
+    opacity: 1;
+    padding: 0.4vmin 1.8vmin;
+    margin-bottom: 1vmin;
+    border-radius: 999px;
+    background: rgba(20, 11, 3, 0.74);
+    box-shadow: inset 0 0 0 0.2vmin rgba(255, 240, 210, 0.14);
+}
+
+.stage .message {
+    display: inline-block;
+    color: #fbf1dc;
+    font-weight: 600;
+    padding: 0.8vmin 2.6vmin;
+    border-radius: 999px;
+    background: rgba(20, 11, 3, 0.74);
+    box-shadow: inset 0 0 0 0.22vmin rgba(255, 240, 210, 0.16);
+}
+
+.stage .message:empty {
+    background: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+/* the banner echoes whose turn it is, so the cue survives even if the
+   player is looking at the clocks rather than the face */
+.stage.state-your_turn .message {
+    color: #2a1c06;
+    background: var(--wheat);
+    box-shadow:
+        inset 0 0.7vmin 0.9vmin rgba(255, 255, 255, 0.55),
+        0 0.7vmin 0 var(--wheat-lo),
+        var(--cast-s);
+}
+
+.stage.state-your_turn .state-label {
+    color: #f7d98a;
+}
+
+/* ============================================================
+   BOARD RIM — the thick cardboard edge of the physical board
+   ============================================================ */
+.tabletop-frame {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    border: 2.4vmin solid var(--rim);
+    border-radius: 1.2vmin;
+    box-shadow:
+        inset 0 0 0 0.55vmin var(--rim-hi),
+        inset 0 0 0 1.1vmin var(--rim-lo),
+        inset 0 1.6vmin 2.4vmin rgba(255, 226, 180, 0.16),
+        inset 0 -2vmin 3vmin rgba(0, 0, 0, 0.4),
+        inset 0 0 8vmin 2vmin rgba(40, 22, 8, 0.28);
+}
+
+/* ============================================================
+   DECOR — moulded pieces and loose chips resting on the table
+   ============================================================ */
+.deco-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+}
+
+.deco-layer .deco-piece {
+    position: absolute;
+    width: 13vmin;
+    height: 16.3vmin;
+    overflow: visible;
+    filter: drop-shadow(0 1.6vmin 1.8vmin rgba(38, 22, 10, 0.45));
+}
+
+/* kept clear of the corners, where the clocks, the PiP and the
+   connection chip live */
+.deco-layer .pc-knight {
+    left: 27vmin;
+    bottom: 1.4vmin;
+    transform: rotate(-6deg);
+}
+
+.deco-layer .pc-rook {
+    right: 27vmin;
+    bottom: 1.4vmin;
+    transform: rotate(5deg) scaleX(-1);
+}
+
+/* moulded-plastic shading: light top, dark side wall, soft cast */
+.pc-cast {
+    fill: rgba(30, 16, 6, 0.38);
+}
+
+.pc-knight .pc-base,
+.pc-knight .pc-body {
+    fill: #d6533c;
+}
+
+.pc-knight .pc-base-d,
+.pc-knight .pc-body-d {
+    fill: #8e2d1d;
+}
+
+.pc-rook .pc-base,
+.pc-rook .pc-body {
+    fill: #f0e6d6;
+}
+
+.pc-rook .pc-base-d,
+.pc-rook .pc-body-d {
+    fill: #b3a48c;
+}
+
+.pc-shade {
+    fill: rgba(0, 0, 0, 0.17);
+}
+
+.pc-eye {
+    fill: rgba(0, 0, 0, 0.55);
+}
+
+.pc-mane {
+    fill: rgba(0, 0, 0, 0.18);
+}
+
+/* loose hex chips on the table edge */
+.deco-chip {
+    position: absolute;
+    width: 7.4vmin;
+    height: 8.5vmin;
+    clip-path: var(--hex);
+    filter:
+        drop-shadow(0 0.9vmin 0 rgba(60, 36, 16, 0.5))
+        drop-shadow(0 2vmin 1.8vmin rgba(38, 22, 10, 0.4));
+}
+
+.deco-chip::after {
+    content: "";
+    position: absolute;
+    inset: 11%;
+    clip-path: var(--hex);
+    background: linear-gradient(170deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 55%);
+}
+
+.chip-a {
+    top: 4vmin;
+    left: 4.5vmin;
+    background: var(--leaf);
+    transform: rotate(8deg);
+}
+
+.chip-b {
+    top: 4vmin;
+    right: 4.5vmin;
+    background: var(--sea);
+    transform: rotate(-11deg);
+}
+
+.chip-c {
+    bottom: 5vmin;
+    left: 21vmin;
+    width: 6vmin;
+    height: 6.9vmin;
+    background: var(--wheat);
+    transform: rotate(-5deg);
+}
+
+/* ============================================================
+   OVERLAY LAYER
+   ============================================================ */
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* ---------- shared: a cream plaque cut from board stock ---------- */
+.blocker-card,
+.clock,
+.turn-chip,
+.lcard,
+.leave-room,
+.conn-status {
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+}
+
+/* ============================================================
+   ILLEGAL-MOVE BLOCKER
+   ============================================================ */
+.blocker {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 45%, rgba(45, 26, 10, 0.55), rgba(30, 17, 6, 0.8));
+    pointer-events: auto;
+    animation: fade-in 0.28s ease-out both;
+}
+
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.blocker.hidden {
+    display: none;
+}
+
+/* the displaced-kiosk notice must sit above the attract screen (z-40) and
+   take the tap that reloads the tab */
+.kiosk-displaced {
+    position: fixed;
+    z-index: 60;
+    cursor: pointer;
+}
+
+/* no quick match on machines — a stranger's moves must never drive the arm */
+body.kiosk #btnQuick {
+    display: none;
+}
+
+/* his engine has no variants or difficulty levels — hide them on machines
+   (they stay available for browser games) */
+body.kiosk #variantCard,
+body.kiosk .diff-ui,
+body.kiosk .diff-pieces,
+body.kiosk #diffSlider,
+body.kiosk .diff-labels {
+    display: none;
+}
+
+/* tap sign-in in progress: hide the selection steps and guest/staff links,
+   show one calm waiting line instead — the steps must never flash by */
+.attract-signin {
+    display: none;
+}
+
+.kiosk-attract.signing-in .attract-signin {
+    display: block;
+}
+
+.kiosk-attract.signing-in #modeChoose,
+.kiosk-attract.signing-in #modeHint,
+.kiosk-attract.signing-in #btnGuestPlay,
+.kiosk-attract.signing-in #btnStaffSignin {
+    display: none;
+}
+
+.attract-signin .as-big {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 4.6vmin;
+    font-weight: 800;
+    color: #3d2e1d;
+    animation: signin-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes signin-pulse {
+    0%,
+    100% {
+        opacity: 0.55;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.blocker-card {
+    position: relative;
+    text-align: center;
+    color: var(--ink);
+    max-width: 68vmin;
+    padding: 5vmin 6vmin;
+    border-radius: 2.6vmin;
+    box-shadow:
+        inset 0 0 0 0.55vmin var(--red),
+        inset 0 1vmin 1.4vmin rgba(255, 255, 255, 0.8),
+        0 1.2vmin 0 var(--red-lo),
+        var(--cast-l);
+    animation: card-drop 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes card-drop {
+    from {
+        transform: translateY(-3vmin) scale(0.94);
+        opacity: 0;
+    }
+
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+.blocker-title {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    color: var(--red-lo);
+    font-size: 4.2vmin;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1.6vmin;
+}
+
+.blocker-reason {
+    font-size: 2.8vmin;
+    font-weight: 500;
+    margin-bottom: 2vmin;
+}
+
+.blocker-hint {
+    font-size: 2vmin;
+    font-weight: 500;
+    color: var(--ink-soft);
+}
+
+/* ============================================================
+   CONNECTION CHIP — a small wooden counter on the rim
+   ============================================================ */
+.conn-status {
+    position: absolute;
+    top: 4.6vmin;
+    left: 4.6vmin;
+    display: flex;
+    align-items: center;
+    gap: 1vmin;
+    padding: 1.1vmin 2.4vmin;
+    border-radius: 999px;
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.75),
+        0 0.7vmin 0 var(--plaque-side),
+        var(--cast-s);
+    color: var(--ink);
+    font-size: 1.9vmin;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.conn-dot {
+    width: 1.5vmin;
+    height: 1.5vmin;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow:
+        inset 0 -0.3vmin 0.4vmin rgba(0, 0, 0, 0.35),
+        inset 0 0.25vmin 0.3vmin rgba(255, 255, 255, 0.6);
+}
+
+.conn-status.ok .conn-dot {
+    color: #4f9440;
+}
+
+.conn-status.warn .conn-dot {
+    color: #d8992a;
+}
+
+.conn-status.bad .conn-dot {
+    color: var(--red);
+}
+
+/* ============================================================
+   CHUNKY BUTTONS — a moulded cap on a coloured side wall.
+   The offset layer is the piece's own edge; the blurred layer is
+   the shadow it casts. Pressing sinks the cap onto the board.
+   ============================================================ */
+.leave-room,
+.lbtn,
+.gameover-actions button,
+.carousel-arrow,
+.timechips button {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    cursor: pointer;
+    pointer-events: auto;
+    border: none;
+    transition:
+        transform 0.12s cubic-bezier(0.3, 0, 0.2, 1),
+        box-shadow 0.12s cubic-bezier(0.3, 0, 0.2, 1),
+        filter 0.18s;
+}
+
+.leave-room {
+    position: absolute;
+    top: 4.6vmin;
+    right: 4.6vmin;
+    z-index: 6; /* above the lobby, which fills the overlay and would eat the click */
+    padding: 1.1vmin 2.6vmin;
+    border-radius: 999px;
+    color: var(--ink);
+    font-size: 1.9vmin;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.75),
+        0 0.7vmin 0 var(--plaque-side),
+        var(--cast-s);
+}
+
+.leave-room:hover {
+    filter: brightness(1.04);
+}
+
+.leave-room:active {
+    transform: translateY(0.55vmin);
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.6),
+        0 0.15vmin 0 var(--plaque-side),
+        0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.3);
+}
+
+.leave-room.hidden {
+    display: none;
+}
+
+/* ============================================================
+   CLOCKS — cream number tokens, exactly like the board's
+   ============================================================ */
+.clock {
+    position: absolute;
+    right: 4.6vmin;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2vmin;
+    width: 20vmin;
+    padding: 1.4vmin 2vmin 1.2vmin;
+    border-radius: 2vmin;
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.8),
+        0 0.9vmin 0 var(--plaque-side),
+        var(--cast-m);
+    transition: box-shadow 0.35s ease, transform 0.35s ease;
+}
+
+.clock.hidden {
+    display: none;
+}
+
+.clock.opp {
+    top: 11.5vmin;
+}
+
+.clock.mine {
+    bottom: 4.6vmin;
+}
+
+.clock-label {
+    font-size: 1.6vmin;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.clock-time {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    font-size: 4.4vmin;
+    line-height: 1.05;
+    color: var(--ink);
+}
+
+/* whose turn it is: the token lifts off the board */
+.clock.active {
+    transform: translateY(-0.6vmin);
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--leaf),
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.8),
+        0 1.3vmin 0 var(--leaf-lo),
+        var(--cast-l);
+}
+
+.clock.low .clock-time {
+    color: var(--red-lo);
+    animation: clock-blink 1s infinite;
+}
+
+@keyframes clock-blink {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+/* ============================================================
+   TURN INDICATORS
+   ============================================================ */
+.turn-chip {
+    position: absolute;
+    top: 4.6vmin;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 1.2vmin 3.4vmin;
+    border-radius: 999px;
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-weight: 800;
+    font-size: 2.4vmin;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.turn-chip.hidden,
+.turn-glow.hidden {
+    display: none;
+}
+
+/* your turn is loud: bigger, greener, and it bobs */
+.turn-chip.mine {
+    padding: 1.5vmin 4.2vmin;
+    font-size: 3.1vmin;
+    color: #23491b;
+    background: linear-gradient(170deg, #a7db8a, var(--grass));
+    box-shadow:
+        inset 0 0 0 0.5vmin var(--leaf-lo),
+        inset 0 1.1vmin 1.3vmin rgba(255, 255, 255, 0.6),
+        0 1.1vmin 0 var(--leaf-lo),
+        var(--cast-m);
+    animation: chip-breathe 2s infinite ease-in-out;
+}
+
+@keyframes chip-breathe {
+    0%,
+    100% {
+        transform: translateX(-50%) translateY(0);
+    }
+
+    50% {
+        transform: translateX(-50%) translateY(-0.7vmin);
+    }
+}
+
+/* the robot's turn is quiet: smaller, flatter, no motion */
+.turn-chip.theirs {
+    padding: 1vmin 2.8vmin;
+    font-size: 2.1vmin;
+    color: var(--ink-soft);
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.9vmin 1.1vmin rgba(255, 255, 255, 0.7),
+        0 0.6vmin 0 var(--plaque-side),
+        var(--cast-s);
+}
+
+/* warm lamp swelling over the board while it is your turn */
+.turn-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    animation: turn-lamp 2.6s infinite ease-in-out;
+}
+
+@keyframes turn-lamp {
+    0%,
+    100% {
+        box-shadow: inset 0 0 6vmin 1vmin rgba(238, 201, 92, 0.16);
+    }
+
+    50% {
+        box-shadow: inset 0 0 13vmin 2vmin rgba(238, 201, 92, 0.42);
+    }
+}
+
+/* ============================================================
+   COIN FLIP
+   ============================================================ */
+.coinflip {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3vmin;
+    background: radial-gradient(ellipse at 50% 45%, rgba(45, 26, 10, 0.55), rgba(30, 17, 6, 0.82));
+    pointer-events: auto;
+    animation: fade-in 0.28s ease-out both;
+}
+
+.coinflip.hidden {
+    display: none;
+}
+
+.coin {
+    font-size: 15vmin;
+    line-height: 1;
+    filter: drop-shadow(0 2vmin 2.4vmin rgba(0, 0, 0, 0.6));
+}
+
+.coin.spinning {
+    animation: coin-spin 0.45s linear infinite;
+}
+
+@keyframes coin-spin {
+    from {
+        transform: rotateY(0deg);
+    }
+
+    to {
+        transform: rotateY(360deg);
+    }
+}
+
+.coinflip-text {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    color: var(--plaque);
+    font-weight: 700;
+    font-size: 3.4vmin;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-shadow: 0 0.5vmin 1vmin rgba(0, 0, 0, 0.7);
+}
+
+/* ============================================================
+   GAME OVER
+   ============================================================ */
+.gameover {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3vmin;
+    /* deep enough that the cream lettering clears AA over the brightest
+       terrain tile the board can put behind it */
+    background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(24, 13, 5, 0.82), rgba(18, 10, 3, 0.9));
+    animation: fade-in 0.35s ease-out both;
+}
+
+.gameover.hidden {
+    display: none;
+}
+
+/* result stamped into thick board stock */
+.gameover-result {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 11vmin;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1;
+    animation: result-pop 0.55s cubic-bezier(0.18, 1.3, 0.35, 1) both;
+}
+
+.gameover-result.win {
+    color: #8fc46a;
+    text-shadow:
+        0 0.5vmin 0 var(--leaf-lo),
+        0 1vmin 0 #2b4f20,
+        0 2vmin 2.6vmin rgba(0, 0, 0, 0.55);
+}
+
+.gameover-result.lose {
+    color: #e08a75;
+    text-shadow:
+        0 0.5vmin 0 var(--red-lo),
+        0 1vmin 0 #6d2013,
+        0 2vmin 2.6vmin rgba(0, 0, 0, 0.55);
+}
+
+@keyframes result-pop {
+    from {
+        transform: scale(0.55) translateY(2vmin);
+        opacity: 0;
+    }
+
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+.gameover-hint {
+    color: #f6e7c8;
+    font-size: 2.3vmin;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0.3vmin 0.8vmin rgba(0, 0, 0, 0.8);
+}
+
+.gameover-players {
+    display: flex;
+    align-items: center;
+    gap: 3.4vmin;
+}
+
+.gp-player {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.9vmin;
+}
+
+/* each player is a round token standing on the board */
+.gp-icon {
+    font-size: 6.4vmin;
+    line-height: 1;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    border-radius: 50%;
+    padding: 1.6vmin;
+    box-shadow:
+        inset 0 0 0 0.45vmin var(--plaque-edge),
+        inset 0 1.2vmin 1.4vmin rgba(255, 255, 255, 0.8),
+        0 1vmin 0 var(--plaque-side),
+        var(--cast-m);
+}
+
+.gp-name {
+    color: #f6e7c8;
+    font-size: 1.7vmin;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-shadow: 0 0.3vmin 0.7vmin rgba(0, 0, 0, 0.8);
+}
+
+.gp-badge {
+    position: absolute;
+    top: -1.4vmin;
+    right: -1vmin;
+    font-size: 3.4vmin;
+    z-index: 1;
+    filter: drop-shadow(0 0.4vmin 0.6vmin rgba(0, 0, 0, 0.7));
+}
+
+.gp-badge.hidden {
+    display: none;
+}
+
+.gp-vs {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    color: #e9d3a6;
+    font-size: 2.4vmin;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-shadow: 0 0.3vmin 0.7vmin rgba(0, 0, 0, 0.8);
+}
+
+.gameover-actions button {
+    font-size: 2.2vmin;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1.5vmin 3.4vmin;
+    margin: 0 0.9vmin;
+    border-radius: 1.6vmin;
+    background: linear-gradient(170deg, #f5d873, var(--wheat));
+    color: #4a3616;
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.6),
+        0 1vmin 0 var(--wheat-lo),
+        var(--cast-m);
+}
+
+.gameover-actions button:hover {
+    filter: brightness(1.05);
+}
+
+.gameover-actions button:active {
+    transform: translateY(0.75vmin);
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.45),
+        0 0.25vmin 0 var(--wheat-lo),
+        0 0.5vmin 1vmin rgba(48, 28, 12, 0.35);
+}
+
+.gameover-actions button:disabled {
+    background: linear-gradient(170deg, #ded0b4, #cbbb9a);
+    color: #7b6c52;
+    cursor: default;
+    transform: none;
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.4),
+        0 0.7vmin 0 #a4906d,
+        var(--cast-s);
+}
+
+/* ============================================================
+   EMOTION TOKENS
+   ============================================================ */
+.emotion-layer {
+    position: absolute;
+    right: 4.6vmin;
+    bottom: 22vmin;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 1vmin;
+}
+
+.emotion-badge {
+    font-size: 5.6vmin;
+    line-height: 1;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    border-radius: 50%;
+    padding: 1vmin;
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 0.9vmin 1vmin rgba(255, 255, 255, 0.8),
+        0 0.8vmin 0 var(--plaque-side),
+        var(--cast-m);
+    animation: emote-float 3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.emotion-badge.local {
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--leaf),
+        inset 0 0.9vmin 1vmin rgba(255, 255, 255, 0.8),
+        0 0.8vmin 0 var(--leaf-lo),
+        var(--cast-m);
+}
+
+@keyframes emote-float {
+    0% {
+        transform: translateY(2.5vmin) scale(0.4);
+        opacity: 0;
+    }
+
+    14% {
+        transform: translateY(0) scale(1.16);
+        opacity: 1;
+    }
+
+    26% {
+        transform: scale(1);
+    }
+
+    74% {
+        opacity: 1;
+    }
+
+    100% {
+        transform: translateY(-7vmin) scale(0.88);
+        opacity: 0;
+    }
+}
+
+/* ============================================================
+   LOCAL VIDEO PIP — a framed snapshot laid on the board
+   ============================================================ */
+.pip-wrap {
+    position: absolute;
+    left: 4.6vmin;
+    bottom: 4.6vmin;
+    width: 23vmin;
+    height: 17vmin;
+    border-radius: 1.6vmin;
+    overflow: hidden;
+    pointer-events: auto; /* the overlay passes clicks through; opt back in */
+    background: #24170d;
+    box-shadow:
+        inset 0 0 0 0.5vmin var(--rim),
+        0 1.2vmin 0 var(--rim-lo),
+        var(--cast-l);
+}
+
+.pip-wrap.hidden {
+    display: none;
+}
+
+.pip {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    transform: scaleX(-1) rotate(-1.5deg);
+    transition: opacity 0.2s;
+}
+
+.pip-wrap.cam-off .pip {
+    opacity: 0.15;
+}
+
+/* camera off: the empty box gets a centered camera-off marker (clicks pass
+   through to the controls below) */
+.pip-wrap.cam-off::after {
+    content: "📷";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 5vmin;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.pip-controls {
+    z-index: 2;
+}
+
+/* hover/tap-to-reveal media controls (Zoom-style) */
+.pip-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: center;
+    gap: 1.4vmin;
+    padding: 1.2vmin;
+    background: linear-gradient(transparent, rgba(24, 13, 5, 0.78));
+    opacity: 0;
+    transition: opacity 0.18s;
+}
+
+.pip-wrap:hover .pip-controls,
+.pip-wrap:focus-within .pip-controls,
+.pip-wrap.show-controls .pip-controls {
+    opacity: 1;
+}
+
+.pip-btn {
+    width: 5vmin;
+    height: 5vmin;
+    min-width: 38px;
+    min-height: 38px;
+    border-radius: 50%;
+    border: none;
+    font-size: 2.3vmin;
+    line-height: 1;
+    background: rgba(244, 227, 194, 0.94);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    touch-action: manipulation;
+    box-shadow: 0 0.3vmin 0.8vmin rgba(24, 13, 5, 0.4);
+}
+
+/* off state: red with a slash — universally "muted" */
+.pip-btn.off,
+.cam-toggle.off {
+    background: #b0392e;
+}
+
+.pip-btn.off::after,
+.cam-toggle.off::after {
+    content: "";
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: 50%;
+    height: 0.4vmin;
+    min-height: 2px;
+    background: #fff;
+    border-radius: 1px;
+    transform: rotate(-45deg);
+}
+
+/* kiosk guest-mode back button — a real pill button (same family as the
+   language toggle), parked bottom-left */
+.leave-room.guest-back {
+    top: auto;
+    right: auto;
+    bottom: 4.6vmin;
+    left: 4.6vmin;
+    z-index: 45;
+    pointer-events: auto; /* the overlay passes clicks through; opt back in */
+}
+.board-toggle.cam-toggle {
+    right: 8.6vmin;
+}
+
+/* ============================================================
+   LOBBY — the same table, with the box contents laid out on it
+   ============================================================ */
+.lobby {
+    position: absolute;
+    inset: 0;
+    overflow: hidden auto;
+    display: flex;
+    pointer-events: auto;
+    color: var(--ink);
+    scrollbar-width: thin;
+    scrollbar-color: var(--rim) transparent;
+    /* the felt pool the box contents are laid out on. It also guarantees
+       the header text a dark ground, whichever terrain tile is beneath. */
+    background: radial-gradient(ellipse 72vmin 92vmin at 50% 44%,
+            rgba(24, 13, 5, 0.68), rgba(24, 13, 5, 0.46) 44%, transparent 76%);
+}
+
+.lobby::-webkit-scrollbar {
+    width: 1.4vmin;
+}
+
+.lobby::-webkit-scrollbar-thumb {
+    background: var(--rim);
+    border-radius: 999px;
+}
+
+.lobby.hidden {
+    display: none;
+}
+
+.lobby-inner {
+    position: relative;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.6vmin max(16px, 3vmin);
+}
+
+/* the host: a robot king, moulded in plastic and crowned */
+.lobby-face {
+    width: clamp(120px, 21vmin, 220px);
+    height: auto;
+    overflow: visible;
+    margin-bottom: 1.4vmin;
+    filter: drop-shadow(0 1.6vmin 1.8vmin rgba(20, 10, 4, 0.6));
+    animation: piece-place 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* chassis: lit top face over a darker extruded side */
+.lk-chassis {
+    fill: #a7b0b8;
+}
+
+.lk-chassis-d {
+    fill: #6f7982;
+}
+
+.lk-chassis-hi {
+    fill: rgba(255, 255, 255, 0.2);
+}
+
+.lk-rim-hi {
+    fill: rgba(255, 255, 255, 0.26);
+}
+
+.lk-cast {
+    fill: rgba(20, 10, 4, 0.42);
+}
+
+/* gold regalia */
+.lk-gold {
+    fill: var(--wheat);
+}
+
+.lk-gold-d {
+    fill: var(--wheat-lo);
+}
+
+.lk-jewel {
+    fill: var(--red);
+}
+
+.lk-shine {
+    fill: rgba(255, 255, 255, 0.55);
+}
+
+/* the screen it wears for a face */
+.lk-bezel {
+    fill: #5f6a73;
+}
+
+.lk-screen {
+    fill: #22313a;
+}
+
+.lk-eye {
+    fill: #43d4bd;
+}
+
+.lk-pupil {
+    fill: #101b21;
+}
+
+.lk-smile {
+    fill: none;
+    stroke: #43d4bd;
+    stroke-width: 8;
+    stroke-linecap: round;
+}
+
+.lf-eye {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blink 4.2s infinite;
+}
+
+.lf-eye-r {
+    animation-delay: 0.08s;
+}
+
+@keyframes piece-place {
+    from {
+        transform: translateY(-2.5vmin) scale(0.9);
+        opacity: 0;
+    }
+
+    to {
+        transform: none;
+        opacity: 1;
+    }
+}
+
+/* title carved into the board */
+.lobby-welcome {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 4.4vmin;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #fbf1dc;
+    text-shadow:
+        0 0.45vmin 0 var(--rim-lo),
+        0 0.9vmin 0 #33200f,
+        0 1.8vmin 2.4vmin rgba(0, 0, 0, 0.6);
+    margin: 1.8vmin 0 0.6vmin;
+    animation: piece-place 0.7s 0.06s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* a small engraved status strip, so the live message stays legible
+   whichever terrain tile happens to sit behind it */
+.lobby-status {
+    font-size: 1.95vmin;
+    font-weight: 600;
+    color: #fbf1dc;
+    margin-bottom: 1.8vmin;
+    padding: 0.7vmin 2.4vmin;
+    border-radius: 999px;
+    background: rgba(20, 11, 3, 0.74);
+    box-shadow: inset 0 0 0 0.22vmin rgba(255, 240, 210, 0.16);
+    letter-spacing: 0.04em;
+}
+
+.lobby-status:empty {
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    min-height: 2.8vmin;
+}
+
+/* ---------- the carousel of chunky terrain cards ---------- */
+.lobby-stage {
+    position: relative;
+    width: clamp(268px, 42vmin, 470px);
+    height: clamp(356px, 54vmin, 620px);
+    perspective: 150vmin;
+    animation: piece-place 0.8s 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.lobby-carousel {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+}
+
+.carousel-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 4;
+    width: 6.4vmin;
+    height: 6.4vmin;
+    min-width: 46px;
+    min-height: 46px;
+    border-radius: 50%;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    color: var(--rim-lo);
+    font-size: 3.6vmin;
+    font-weight: 800;
+    line-height: 0;
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.8),
+        0 0.9vmin 0 var(--plaque-side),
+        var(--cast-m);
+}
+
+.carousel-arrow:hover {
+    filter: brightness(1.05);
+}
+
+.carousel-arrow:active {
+    transform: translateY(calc(-50% + 0.65vmin));
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.6),
+        0 0.25vmin 0 var(--plaque-side),
+        0 0.5vmin 1vmin rgba(48, 28, 12, 0.35);
+}
+
+.carousel-arrow.left {
+    left: -9.5vmin;
+}
+
+.carousel-arrow.right {
+    right: -9.5vmin;
+}
+
+/* a card is a thick printed tile: cream face, coloured edge band,
+   a dark side wall beneath it, and a soft shadow on the table */
+.lcard {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.6vmin;
+    padding: max(22px, 3.6vmin) max(20px, 3vmin);
+    border-radius: 3vmin;
+    box-shadow:
+        inset 0 0 0 0.75vmin var(--leaf),
+        inset 0 0 0 1.15vmin var(--leaf-lo),
+        inset 0 1.4vmin 1.8vmin rgba(255, 255, 255, 0.8),
+        0 1.6vmin 0 var(--leaf-lo),
+        var(--cast-l);
+    backface-visibility: hidden;
+    transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1), filter 0.6s;
+    cursor: default;
+}
+
+.lcard:nth-child(3) {
+    box-shadow:
+        inset 0 0 0 0.75vmin var(--sea),
+        inset 0 0 0 1.15vmin var(--sea-lo),
+        inset 0 1.4vmin 1.8vmin rgba(255, 255, 255, 0.8),
+        0 1.6vmin 0 var(--sea-lo),
+        var(--cast-l);
+}
+
+.lcard-center {
+    box-shadow:
+        inset 0 0 0 0.75vmin var(--wheat),
+        inset 0 0 0 1.15vmin var(--wheat-lo),
+        inset 0 1.4vmin 1.8vmin rgba(255, 255, 255, 0.85),
+        0 1.6vmin 0 var(--wheat-lo),
+        var(--cast-l);
+}
+
+.lcard-title {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.8vmin;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+    text-transform: uppercase;
+    text-align: center;
+    color: var(--ink);
+}
+
+.lcard-title.big {
+    font-size: 3.6vmin;
+}
+
+/* authored badge art instead of stand-in glyphs */
+.lcard-bot,
+.lcard-icon {
+    width: 11vmin;
+    height: 11vmin;
+    min-width: 66px;
+    min-height: 66px;
+    filter: drop-shadow(0 1vmin 1.2vmin rgba(48, 28, 12, 0.35));
+}
+
+.lcard-sub {
+    font-size: 1.85vmin;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.lcard-pieces {
+    display: flex;
+    gap: 1.4vmin;
+    height: 11vmin;
+    filter: drop-shadow(0 1.2vmin 1.2vmin rgba(48, 28, 12, 0.38));
+}
+
+.lcard-pieces svg {
+    height: 100%;
+    width: auto;
+    overflow: visible;
+}
+
+.lcard-pieces .pc-knight {
+    transform: rotate(-7deg);
+}
+
+.lcard-pieces .pc-rook {
+    transform: rotate(6deg);
+}
+
+/* ---------- difficulty ---------- */
+.diff-pieces {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.4vmin;
+    height: 5vmin;
+}
+
+.diff-pieces span {
+    display: block;
+    width: 2.6vmin;
+    min-width: 16px;
+    height: 100%;
+    background: #c9b79a;
+    clip-path: polygon(50% 0%, 72% 22%, 62% 34%, 78% 100%, 22% 100%, 38% 34%, 28% 22%);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.diff-pieces span.sel {
+    background: var(--clay);
+    transform: scale(1.18);
+    filter: drop-shadow(0 0.5vmin 0.6vmin rgba(48, 28, 12, 0.4));
+}
+
+#diffSlider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 1.6vmin;
+    border-radius: 999px;
+    background: linear-gradient(var(--plaque-side), #c9ad7f);
+    box-shadow: inset 0 0.35vmin 0.7vmin rgba(48, 28, 12, 0.45);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+#diffSlider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 3.6vmin;
+    height: 3.6vmin;
+    border-radius: 50%;
+    background: linear-gradient(168deg, #f5d873, var(--wheat));
+    box-shadow:
+        inset 0 0.7vmin 0.8vmin rgba(255, 255, 255, 0.7),
+        0 0.6vmin 0 var(--wheat-lo),
+        0 1vmin 1.4vmin rgba(48, 28, 12, 0.4);
+}
+
+#diffSlider::-moz-range-thumb {
+    width: 3.6vmin;
+    height: 3.6vmin;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(168deg, #f5d873, var(--wheat));
+    box-shadow:
+        inset 0 0.7vmin 0.8vmin rgba(255, 255, 255, 0.7),
+        0 0.6vmin 0 var(--wheat-lo),
+        0 1vmin 1.4vmin rgba(48, 28, 12, 0.4);
+}
+
+.diff-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 1.6vmin;
+    font-weight: 600;
+    color: var(--ink-soft);
+    letter-spacing: 0.06em;
+}
+
+/* ---------- time-control counters ---------- */
+.timechips {
+    display: flex;
+    gap: 1.1vmin;
+}
+
+.timechips button {
+    font-size: 1.9vmin;
+    font-weight: 700;
+    padding: 1vmin 2.2vmin;
+    border-radius: 999px;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    color: var(--ink-soft);
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.7vmin 0.8vmin rgba(255, 255, 255, 0.8),
+        0 0.6vmin 0 var(--plaque-side),
+        var(--cast-s);
+}
+
+.timechips button:hover {
+    filter: brightness(1.05);
+}
+
+/* selected counter is pressed flat into the board */
+.timechips button.sel {
+    background: linear-gradient(170deg, #f5d873, var(--wheat));
+    color: #4a3616;
+    transform: translateY(0.5vmin);
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--wheat-lo),
+        inset 0 0.7vmin 0.9vmin rgba(255, 255, 255, 0.55),
+        0 0.2vmin 0 var(--wheat-lo),
+        0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.35);
+}
+
+/* ---------- chunky action buttons ---------- */
+.lbtn {
+    font-size: 2.15vmin;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1.5vmin 3.4vmin;
+    border-radius: 1.6vmin;
+    background: linear-gradient(170deg, #f5d873, var(--wheat));
+    color: #4a3616;
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.6),
+        0 1vmin 0 var(--wheat-lo),
+        var(--cast-m);
+}
+
+.lbtn:hover {
+    filter: brightness(1.05);
+}
+
+.lbtn:active {
+    transform: translateY(0.75vmin);
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.45),
+        0 0.25vmin 0 var(--wheat-lo),
+        0 0.5vmin 1vmin rgba(48, 28, 12, 0.35);
+}
+
+.lbtn.join {
+    background: linear-gradient(170deg, #9ad37c, var(--leaf));
+    color: #21451a;
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.5),
+        0 1vmin 0 var(--leaf-lo),
+        var(--cast-m);
+}
+
+.lbtn.join:active {
+    transform: translateY(0.75vmin);
+    box-shadow:
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.4),
+        0 0.25vmin 0 var(--leaf-lo),
+        0 0.5vmin 1vmin rgba(48, 28, 12, 0.35);
+}
+
+.llink {
+    background: none;
+    border: none;
+    font-family: inherit;
+    font-size: 1.75vmin;
+    font-weight: 600;
+    color: #8a6a3c;
+    text-decoration: underline;
+    text-underline-offset: 0.45vmin;
+    text-decoration-thickness: 0.2vmin;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.llink:hover {
+    color: var(--clay-lo);
+}
+
+/* ---------- party code: stamped into the card ---------- */
+#partyCode {
+    width: 100%;
+    max-width: 30vmin;
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.2vmin;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-align: center;
+    text-transform: uppercase;
+    padding: 1.4vmin 1vmin;
+    border-radius: 1.4vmin;
+    border: none;
+    background: #efe0c2;
+    color: var(--ink);
+    caret-color: var(--clay);
+    pointer-events: auto;
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-side),
+        inset 0 0.7vmin 1.2vmin rgba(48, 28, 12, 0.3);
+}
+
+#partyCode::placeholder {
+    text-transform: none;
+    letter-spacing: 0.06em;
+    color: #6f5a3e;
+    font-weight: 500;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+    .lobby-stage {
+        width: 74vw;
+        height: 96vw;
+    }
+
+    .carousel-arrow.left {
+        left: -7.5vmin;
+    }
+
+    .carousel-arrow.right {
+        right: -7.5vmin;
+    }
+
+    .deco-piece {
+        width: 10vmin;
+        height: 12.5vmin;
+    }
+
+    .chip-c {
+        display: none;
+    }
+}
+
+/* phone on a stand beside the physical board: bigger targets */
+@media (pointer: coarse) {
+
+    .lbtn,
+    .llink,
+    #partyCode {
+        font-size: 4vw;
+        padding: 2.5vmin 5vmin;
+        margin: 1.2vmin;
+    }
+
+    .lcard-title {
+        font-size: 5vw;
+    }
+
+    .lobby-welcome {
+        font-size: 6vw;
+    }
+
+    .lobby-status {
+        font-size: 4vw;
+    }
+
+    .conn-status,
+    .leave-room {
+        font-size: 3.4vw;
+        padding: 1.5vmin 3vmin;
+    }
+
+    .turn-chip {
+        font-size: 4vw;
+        padding: 1.5vmin 4vmin;
+    }
+
+    .gameover-hint {
+        font-size: 4.5vw;
+    }
+
+    .gameover-actions button {
+        font-size: 4.5vw;
+        padding: 2vmin 5vmin;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .board-plane,
+    .lobby-face,
+    .lobby-welcome,
+    .lobby-stage,
+    .blocker-card,
+    .gameover-result,
+    .turn-chip.mine,
+    .turn-glow,
+    .lf-eye,
+    .base-face .eye,
+    .base-face .face,
+    .brow,
+    .sweat,
+    .bot-antenna i,
+    .mouth path {
+        animation: none !important;
+    }
+
+    /* the scared read must survive without motion: keep the static pose
+       and show the sweat bead outright */
+    .base-face .state-your_turn .sweat {
+        opacity: 1;
+        transform: rotate(-45deg) scale(1);
+    }
+}
+
+/* the profile card's little result line */
+.profile-note {
+    font-size: 1.7vmin;
+    color: var(--ink-soft);
+    min-height: 2vmin;
+}
+
+/* variant chips: same pills as the time control, just taller text */
+.variant-chips button {
+    font-size: 1.8vmin;
+    padding: 0.9vmin 1.4vmin;
+}
+
+/* ============================================================
+   DEV PANEL — the referee's clipboard
+   ============================================================ */
+.devpanel {
+    background: rgba(45, 27, 12, 0.95);
+    border: 0.3vmin solid var(--rim-hi);
+    border-radius: 1.2vmin;
+    color: #f4e3c2;
+    box-shadow: var(--cast-l);
+    backdrop-filter: none;
+    z-index: 20;
+}
+
+.devpanel h4 {
+    color: #e3c896;
+    opacity: 1;
+}
+
+.devpanel button {
+    font-family: inherit;
+    font-weight: 600;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    color: var(--ink);
+    border: none;
+    border-radius: 0.8vmin;
+    box-shadow: 0 0.3vmin 0 var(--plaque-side);
+}
+
+.devpanel button:hover {
+    filter: brightness(1.05);
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+}
+
+.devpanel button:active {
+    transform: translateY(0.25vmin);
+    box-shadow: none;
+}
+
+.devpanel input {
+    font-family: inherit;
+    border-radius: 0.5vmin;
+    border: 1px solid var(--rim-hi);
+    background: #f4e3c2;
+    color: var(--ink);
+    padding: 2px 4px;
+}
+
+.dev-status {
+    font-size: 12px;
+    margin: 6px 3px;
+    color: #e3c896;
+}
+
+.dev-section {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(227, 200, 150, 0.25);
+}
+
+/* ============================================================
+   AUTH SCREEN (Phase 1) — sign-in before the lobby; tap links
+   land here briefly while the custom token is exchanged.
+   ============================================================ */
+.auth-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink);
+    background: radial-gradient(ellipse 72vmin 92vmin at 50% 44%,
+            rgba(24, 13, 5, 0.86), rgba(24, 13, 5, 0.78) 50%, rgba(24, 13, 5, 0.68));
+}
+
+.auth-screen.hidden {
+    display: none;
+}
+
+.auth-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.6vmin;
+    width: min(88vw, 52vmin);
+    padding: 4vmin 4.4vmin;
+    border-radius: 2.6vmin;
+    background: linear-gradient(172deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1.2vmin 1.6vmin rgba(255, 255, 255, 0.7),
+        0 1.2vmin 0 var(--plaque-side),
+        var(--cast-l);
+    animation: piece-place 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.auth-title {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 3.8vmin;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.auth-sub {
+    font-size: 1.9vmin;
+    font-weight: 600;
+    color: var(--ink-soft);
+    text-align: center;
+    max-width: 40vmin;
+}
+
+#authForm {
+    display: flex;
+    flex-direction: column;
+    gap: 1.4vmin;
+    width: 100%;
+}
+
+#authForm.hidden {
+    display: none;
+}
+
+#authForm input {
+    font-family: inherit;
+    font-size: 2.1vmin;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 1.2vmin 1.8vmin;
+    border: none;
+    border-radius: 1.2vmin;
+    background: rgba(255, 255, 255, 0.65);
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--plaque-edge),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+    outline: none;
+    user-select: text;
+}
+
+#authForm input:focus {
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--sea),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+}
+
+.auth-error {
+    min-height: 2.2vmin;
+    font-size: 1.8vmin;
+    font-weight: 600;
+    color: var(--red);
+    text-align: center;
+}
+
+#authSubmit {
+    width: 100%;
+}
+
+#authToggle.hidden {
+    display: none;
+}
+
+/* ---------- the lobby's mode banner + locked play actions ---------- */
+.mode-banner {
+    font-size: 1.8vmin;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #fbf1dc;
+    padding: 0.6vmin 2.2vmin;
+    border-radius: 999px;
+    margin: -0.8vmin 0 1.6vmin;
+    background: rgba(20, 11, 3, 0.74);
+    box-shadow: inset 0 0 0 0.22vmin rgba(255, 240, 210, 0.16);
+}
+
+.mode-banner.play {
+    box-shadow: inset 0 0 0 0.3vmin rgba(143, 214, 106, 0.65);
+}
+
+.lbtn:disabled,
+.llink:disabled {
+    filter: grayscale(0.5) brightness(0.9);
+    cursor: not-allowed;
+}
+
+.lbtn:disabled:active,
+.llink:disabled:active {
+    transform: none;
+}
+
+#partyCode:disabled {
+    filter: grayscale(0.5) brightness(0.9);
+}
+
+/* sign-out sits under Leave party, same chunky plaque look */
+.leave-room.signout {
+    top: 10.2vmin;
+}
+
+/* ============================================================
+   WATCH PANEL + REPLAY (Phase 6) — the spectator lobby lists
+   and the recorded-game replay card.
+   ============================================================ */
+.watch-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2.2vmin;
+    width: clamp(268px, 46vmin, 520px);
+    animation: piece-place 0.8s 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.watch-panel.hidden,
+.lobby-stage.hidden {
+    display: none;
+}
+
+.watch-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1vmin;
+}
+
+.watch-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.4vmin;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #fbf1dc;
+    text-shadow: 0 0.3vmin 0 var(--rim-lo);
+}
+
+.watch-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1vmin;
+    max-height: 24vmin;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rim) transparent;
+    padding-right: 0.6vmin;
+}
+
+.watch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.6vmin;
+    padding: 1.1vmin 1.6vmin;
+    border-radius: 1.4vmin;
+    background: linear-gradient(172deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--plaque-edge),
+        0 0.5vmin 0 var(--plaque-side),
+        var(--cast-s);
+    color: var(--ink);
+}
+
+.watch-label {
+    font-size: 1.8vmin;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.watch-row .lbtn {
+    flex-shrink: 0;
+    font-size: 1.6vmin;
+    padding: 0.8vmin 2vmin;
+}
+
+.watch-empty {
+    font-size: 1.8vmin;
+    font-weight: 600;
+    color: rgba(251, 241, 220, 0.75);
+    text-align: center;
+    padding: 1.6vmin 0;
+}
+
+/* ---------- replay card ---------- */
+.replay {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    background: rgba(24, 13, 5, 0.55);
+}
+
+.replay.hidden {
+    display: none;
+}
+
+.replay-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.4vmin;
+    min-width: min(80vw, 44vmin);
+    padding: 3vmin 3.6vmin;
+    border-radius: 2.4vmin;
+    background: linear-gradient(172deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1.2vmin 1.6vmin rgba(255, 255, 255, 0.7),
+        0 1.2vmin 0 var(--plaque-side),
+        var(--cast-l);
+    color: var(--ink);
+    animation: piece-place 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.replay-title {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.4vmin;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+}
+
+.replay-move {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 3.2vmin;
+    font-weight: 700;
+    min-height: 4vmin;
+}
+
+.replay-pos {
+    font-size: 1.8vmin;
+    font-weight: 600;
+    color: var(--ink-soft);
+}
+
+.replay-controls {
+    display: flex;
+    gap: 1.2vmin;
+}
+
+.replay-controls button {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 1.9vmin;
+    font-weight: 700;
+    padding: 1vmin 2.2vmin;
+    border: none;
+    border-radius: 1.2vmin;
+    cursor: pointer;
+    color: #4a3616;
+    background: linear-gradient(170deg, #f5d873, var(--wheat));
+    box-shadow:
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.6),
+        0 0.7vmin 0 var(--wheat-lo),
+        var(--cast-s);
+}
+
+.replay-controls button:active {
+    transform: translateY(0.5vmin);
+    box-shadow:
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.45),
+        0 0.2vmin 0 var(--wheat-lo);
+}
+
+/* ============================================================
+   FRIENDS (Phase 5) — panel reuses the replay/watch building
+   blocks; the challenge popup floats top-center.
+   ============================================================ */
+.leave-room.friends-btn {
+    top: 15.8vmin;
+}
+
+.friends-card {
+    min-width: min(88vw, 56vmin);
+}
+
+.friends-add {
+    display: flex;
+    gap: 1.2vmin;
+    width: 100%;
+}
+
+.friends-add input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 1.9vmin;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 1vmin 1.6vmin;
+    border: none;
+    border-radius: 1.2vmin;
+    background: rgba(255, 255, 255, 0.65);
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--plaque-edge),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+    outline: none;
+    user-select: text;
+}
+
+.friends-add input:focus {
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--sea),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+}
+
+.friends-error {
+    min-height: 2vmin;
+    font-size: 1.7vmin;
+    font-weight: 600;
+    color: var(--red);
+    text-align: center;
+}
+
+/* the friends card is cream — the dark-lobby empty-state color vanishes on it */
+.friends-card .watch-empty {
+    color: var(--ink-soft);
+}
+
+.friends-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8vmin;
+}
+
+.friends-section.hidden {
+    display: none;
+}
+
+.friends-section-title {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 1.8vmin;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.friends-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8vmin;
+    max-height: 22vmin;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.friend-row .lbtn {
+    flex-shrink: 0;
+    font-size: 1.5vmin;
+    padding: 0.7vmin 1.8vmin;
+}
+
+/* ---------- incoming challenge popup ---------- */
+.challenge-pop {
+    position: absolute;
+    top: 9vmin;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1vmin;
+    padding: 2vmin 2.8vmin;
+    border-radius: 2vmin;
+    pointer-events: auto;
+    background: linear-gradient(172deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1vmin 1.4vmin rgba(255, 255, 255, 0.7),
+        0 1vmin 0 var(--plaque-side),
+        var(--cast-l);
+    color: var(--ink);
+    animation: piece-place 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.challenge-pop.hidden {
+    display: none;
+}
+
+.challenge-text {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.4vmin;
+    font-weight: 800;
+}
+
+.challenge-hint {
+    font-size: 1.7vmin;
+    font-weight: 600;
+    color: var(--ink-soft);
+}
+
+.challenge-hint:empty {
+    display: none;
+}
+
+.challenge-actions {
+    display: flex;
+    gap: 1.4vmin;
+}
+
+/* ---------- in-game add-friend + request toast (Phase 5) ---------- */
+/* the + hangs to the left of the opponent's clock plaque */
+.add-friend {
+    position: absolute;
+    right: calc(100% + 1.2vmin);
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4.4vmin;
+    height: 4.4vmin;
+    border: none;
+    border-radius: 50%;
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.8vmin;
+    font-weight: 800;
+    line-height: 1;
+    color: #21451a;
+    background: linear-gradient(170deg, #9ad37c, var(--leaf));
+    box-shadow:
+        inset 0 0.6vmin 0.8vmin rgba(255, 255, 255, 0.5),
+        0 0.5vmin 0 var(--leaf-lo),
+        var(--cast-s);
+    cursor: pointer;
+    pointer-events: auto;
+    transition: transform 0.12s cubic-bezier(0.3, 0, 0.2, 1), box-shadow 0.12s;
+}
+
+.add-friend:hover {
+    filter: brightness(1.06);
+}
+
+.add-friend:active {
+    transform: translateY(calc(-50% + 0.35vmin));
+    box-shadow:
+        inset 0 0.6vmin 0.8vmin rgba(255, 255, 255, 0.4),
+        0 0.15vmin 0 var(--leaf-lo);
+}
+
+.add-friend.hidden {
+    display: none;
+}
+
+/* side toast: slides in from the right, auto-dismisses, click opens panel */
+.friend-toast {
+    position: absolute;
+    right: 4.6vmin;
+    top: 22vmin;
+    z-index: 9;
+    max-width: 40vmin;
+    padding: 1.4vmin 2.4vmin;
+    border-radius: 1.6vmin;
+    pointer-events: auto;
+    cursor: pointer;
+    color: var(--ink);
+    font-size: 1.9vmin;
+    font-weight: 700;
+    background: linear-gradient(172deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.35vmin var(--plaque-edge),
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.7),
+        0 0.8vmin 0 var(--plaque-side),
+        var(--cast-m);
+    animation: toast-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.friend-toast.hidden {
+    display: none;
+}
+
+@keyframes toast-in {
+    from {
+        transform: translateX(30%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* ============================================================
+   DIGITAL BOARD (Phase 6.5) — spectator + replay chessboard.
+   An 8x8 printed board on the same tabletop: thick rim, sand/leaf
+   squares, moulded-plastic pieces.
+   ============================================================ */
+.base-board {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.base-board.hidden {
+    display: none;
+}
+
+.chess-board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 74vmin;
+    height: 74vmin;
+    position: relative; /* the slide ghost positions itself against this */
+    border: 1.8vmin solid var(--rim);
+    border-radius: 2.4vmin;
+    overflow: hidden;
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--rim-lo),
+        0 1.2vmin 0 var(--rim-lo),
+        var(--cast-l);
+}
+
+.sq {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 7vmin;
+    line-height: 1;
+    user-select: none;
+}
+
+.sq-light {
+    background: var(--sand);
+}
+
+.sq-dark {
+    background: var(--leaf);
+}
+
+/* pieces: chunky glyphs with a moulded edge + cast shadow */
+.sq.pc-w {
+    color: var(--plaque);
+    text-shadow:
+        0 0 0.4vmin var(--plaque-edge),
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+.sq.pc-b {
+    color: #33241a;
+    text-shadow:
+        0 0 0.4vmin #17100a,
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+/* the replay card hosts a smaller board */
+.replay-board.chess-board {
+    width: 42vmin;
+    height: 42vmin;
+    border-width: 1.2vmin;
+}
+
+/* ---- move animation + last-move markers (shared by both renderers) ---- */
+
+/* golden frame on the squares a move just happened between */
+.sq-from {
+    box-shadow: inset 0 0 0 0.55vmin rgba(232, 166, 62, 0.85);
+}
+
+.sq-to {
+    box-shadow:
+        inset 0 0 0 0.55vmin rgba(232, 166, 62, 0.85),
+        inset 0 0 2.4vmin rgba(232, 166, 62, 0.45);
+}
+
+/* the piece sliding across the board */
+.move-ghost {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
+    transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+.move-ghost.pc-w {
+    color: var(--plaque);
+    text-shadow:
+        0 0 0.4vmin var(--plaque-edge),
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+.move-ghost.pc-b {
+    color: #33241a;
+    text-shadow:
+        0 0 0.4vmin #17100a,
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+/* the real destination piece stays hidden until the ghost lands */
+.sq-ghosting {
+    color: transparent !important;
+    text-shadow: none !important;
+}
+
+/* the piece that just moved keeps a golden glow until the next move */
+.sq.sq-moved.pc-w {
+    text-shadow:
+        0 0 1.4vmin rgba(232, 166, 62, 0.95),
+        0 0 0.4vmin var(--plaque-edge),
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+.sq.sq-moved.pc-b {
+    text-shadow:
+        0 0 1.4vmin rgba(232, 166, 62, 0.95),
+        0 0 0.4vmin #17100a,
+        0.5vmin 0.7vmin 0.8vmin rgba(48, 28, 12, 0.45);
+}
+
+/* xiangqi: markers at the intersections + the sliding disc */
+.xq-mark {
+    fill: rgba(232, 166, 62, 0.35);
+}
+
+.xq-mark-to {
+    fill: rgba(232, 166, 62, 0.6);
+}
+
+.xq-ghost {
+    transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+.xq-ghosting {
+    opacity: 0;
+}
+
+/* the moved disc: golden ring + a landing pulse (fires when the ghost lands,
+   because render() recreates the piece at that moment) */
+.xq-piece.xq-moved .xq-ring {
+    stroke: rgba(232, 166, 62, 0.95);
+    stroke-width: 5.5;
+}
+
+.xq-piece.xq-moved .xq-piece-disc {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: xq-land 0.45s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+
+@keyframes xq-land {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+.replay-board .sq {
+    font-size: 4vmin;
+}
+
+/* ============================================================
+   XIANGQI BOARD (multi-game) — 中国象棋 in the same tabletop
+   world: printed paper board, wooden rim, moulded discs with
+   calligraphy glyphs. Rendered entirely in one SVG so lines and
+   pieces scale together.
+   ============================================================ */
+.xq-board {
+    height: 80vmin;
+    aspect-ratio: 890 / 990;
+    border: 1.8vmin solid var(--rim);
+    border-radius: 2.4vmin;
+    overflow: hidden;
+    background: var(--sand);
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--rim-lo),
+        0 1.2vmin 0 var(--rim-lo),
+        var(--cast-l);
+}
+
+.xq-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.xq-svg line {
+    stroke: #4a3826;
+}
+
+.xq-river-text {
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+    font-size: 52px;
+    fill: rgba(74, 56, 38, 0.55);
+    letter-spacing: 18px;
+}
+
+.xq-piece circle {
+    fill: #f7ecd4;
+    stroke: #7a5a34;
+    stroke-width: 3;
+}
+
+.xq-piece .xq-ring {
+    fill: none;
+    stroke-width: 2.5;
+}
+
+.xq-piece text {
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+    font-size: 50px;
+    font-weight: 700;
+}
+
+.xq-red .xq-ring {
+    stroke: #b03a2e;
+}
+
+.xq-red text {
+    fill: #b03a2e;
+}
+
+.xq-black .xq-ring {
+    stroke: #2c1f10;
+}
+
+.xq-black text {
+    fill: #2c1f10;
+}
+
+/* replay card hosts a smaller board */
+.replay-board.xq-board {
+    height: 46vmin;
+    border-width: 1.2vmin;
+}
+
+/* language toggle sits under Friends, same plaque family */
+.leave-room.lang-btn {
+    position: fixed; /* body-level now: must track the viewport, not the overlay */
+    top: 21.4vmin;
+    right: 4.6vmin;
+    z-index: 45; /* floats above the kiosk attract overlay (z-40) */
+}
+
+/* sound toggle sits under the language button */
+.leave-room.sound-btn {
+    position: fixed;
+    top: 28.2vmin;
+    right: 4.6vmin;
+    z-index: 45;
+}
+
+.leave-room.sound-btn.off {
+    opacity: 0.45;
+}
+
+/* ============================================================
+   XIANGQI LOBBY THEME — the physical board decides the flavor.
+   Swaps the chess decorations for xiangqi discs and shifts the
+   lobby accents to a deep-red/gold palette. The robot host, the
+   tabletop, and all layout stay identical.
+   ============================================================ */
+
+/* ---------- Start New Match: xiangqi discs replace chess pieces ---------- */
+.lcard-pieces-xq {
+    display: none;
+}
+
+body[data-game="xiangqi"] .lcard-pieces {
+    display: none;
+}
+
+body[data-game="xiangqi"] .lcard-pieces-xq {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3.4vmin;
+    animation: piece-place 0.7s 0.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.xq-disc {
+    width: 11vmin;
+    height: 11vmin;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+    font-size: 5.4vmin;
+    font-weight: 700;
+    color: #b03a2e;
+    background: radial-gradient(circle at 35% 30%, #fdf6e6, #eeddbc);
+    border: 0.55vmin solid #7a5a34;
+    box-shadow:
+        inset 0 0 0 0.9vmin rgba(176, 58, 46, 0.28),
+        inset 0 0.8vmin 1vmin rgba(255, 255, 255, 0.75),
+        0 0.9vmin 0 #b1946a,
+        var(--cast-m);
+}
+
+.xq-disc + .xq-disc {
+    transform: translateY(1.6vmin) rotate(4deg);
+}
+
+/* ---------- difficulty slider: red discs + red track accent ---------- */
+body[data-game="xiangqi"] .diff-pieces span.sel {
+    background: #b03a2e;
+}
+
+body[data-game="xiangqi"] #diffSlider::-webkit-slider-thumb {
+    background: radial-gradient(circle at 35% 30%, #fdf6e6, #eeddbc);
+    box-shadow:
+        inset 0 0 0 0.5vmin #b03a2e,
+        inset 0 0.5vmin 0.6vmin rgba(255, 255, 255, 0.7),
+        0 0.6vmin 0 #7a2a20,
+        0 1vmin 1.4vmin rgba(48, 28, 12, 0.4);
+}
+
+body[data-game="xiangqi"] #diffSlider::-moz-range-thumb {
+    background: radial-gradient(circle at 35% 30%, #fdf6e6, #eeddbc);
+    box-shadow:
+        inset 0 0 0 0.5vmin #b03a2e,
+        inset 0 0.5vmin 0.6vmin rgba(255, 255, 255, 0.7),
+        0 0.6vmin 0 #7a2a20,
+        0 1vmin 1.4vmin rgba(48, 28, 12, 0.4);
+}
+
+/* ---------- subtle red accent on the lobby cards + banner ---------- */
+body[data-game="xiangqi"] .lcard {
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 0 0 1vmin rgba(176, 58, 46, 0.12),
+        inset 0 1.2vmin 1.6vmin rgba(255, 255, 255, 0.7),
+        0 1.2vmin 0 var(--plaque-side),
+        var(--cast-l);
+}
+
+body[data-game="xiangqi"] .mode-banner.play {
+    box-shadow: inset 0 0 0 0.3vmin rgba(176, 58, 46, 0.7);
+}
+
+/* ---------- decline-reason picker (challenge popup) ---------- */
+#challengeReasons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.4vmin;
+}
+
+#challengeReasons.hidden,
+#challengeMain.hidden {
+    display: none;
+}
+
+.challenge-reason-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1vmin;
+    width: 100%;
+}
+
+.challenge-reason-list .reason {
+    font-size: 1.8vmin;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    width: 100%;
+}
+
+.challenge-custom {
+    display: flex;
+    gap: 1vmin;
+    width: 100%;
+}
+
+.challenge-custom input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 1.8vmin;
+    font-weight: 600;
+    color: var(--ink);
+    padding: 0.9vmin 1.5vmin;
+    border: none;
+    border-radius: 1.1vmin;
+    background: rgba(255, 255, 255, 0.65);
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--plaque-edge),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+    outline: none;
+    user-select: text;
+}
+
+.challenge-custom input:focus {
+    box-shadow:
+        inset 0 0 0 0.3vmin var(--sea),
+        inset 0 0.4vmin 0.8vmin rgba(48, 28, 12, 0.18);
+}
+
+/* ------------------------------------------------------------------
+   Guest kiosk mode (offline Pi): only the Challenge Bot card exists —
+   the other two cards and the carousel arrows are hidden, and the JS
+   pins the carousel to the bot card.
+   ------------------------------------------------------------------ */
+body.guest .lobby-carousel > .lcard:not(:first-child) {
+    display: none;
+}
+
+body.guest .carousel-arrow {
+    display: none;
+}
+
+/* while the kiosk attract page is up, the background is PURE moving tiles:
+   no robot face, no tabletop dressing, no dev toggle, no chrome. The lang
+   toggle is hidden too — the attract page is bilingual by design. */
+body:has(#kioskAttract:not(.hidden)) .base-face,
+body:has(#kioskAttract:not(.hidden)) .deco-layer,
+body:has(#kioskAttract:not(.hidden)) .tabletop-frame,
+body:has(#kioskAttract:not(.hidden)) .dev-toggle,
+body:has(#kioskAttract:not(.hidden)) #connStatus,
+body:has(#kioskAttract:not(.hidden)) #btnSignOut {
+    display: none;
+}
+
+/* global hidden utility — several newer components rely on it (the
+   stylesheet historically hid each component with its own rule) */
+.hidden {
+    display: none !important;
+}
+
+/* TEMP: touchscreen dev toggle for keyboard-less stations — remove with
+   the #devToggle button before production. Bottom-right, thumb-sized,
+   quiet until touched. */
+.dev-toggle {
+    position: fixed;
+    right: 1.5vmin;
+    bottom: 1.5vmin;
+    z-index: 30;
+    pointer-events: auto; /* explicit — never rely on layer defaults */
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    font-size: 24px;
+    line-height: 1;
+    opacity: 0.3;
+    background: rgba(45, 27, 12, 0.85);
+    color: #f4e3c2;
+    border: 2px solid rgba(244, 227, 194, 0.6);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.dev-toggle:active {
+    opacity: 0.9;
+}
+
+/* in-game face/board view toggle (bottom-right row, next to the dev wrench;
+   the bottom-left corner belongs to the PiP preview) */
+.board-toggle.hidden,
+.cam-toggle.hidden {
+    display: none;
+}
+
+.board-toggle {
+    position: fixed;
+    right: 17vmin;
+    bottom: 1.5vmin;
+    z-index: 30;
+    pointer-events: auto; /* the overlay passes clicks through; opt back in */
+    padding: 1.2vmin 2.2vmin;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 2vmin;
+    font-weight: 600;
+    opacity: 0.45;
+    background: rgba(45, 27, 12, 0.85);
+    color: #f4e3c2;
+    border: 2px solid rgba(244, 227, 194, 0.6);
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.board-toggle:active {
+    opacity: 0.9;
+}
+
+/* ------------------------------------------------------------------
+   Kiosk attract screen — full page over the tabletop (the hexboard
+   shows at the edges). Toy-flat design: navy outlines, chunky offset
+   shadows, wooden-disc buttons, the 楚河漢界 river banner.
+   ------------------------------------------------------------------ */
+.kiosk-attract {
+    /* the design's sky-blue table with white diamond dots (the board and
+       pieces on it carry the aged-wood look) */
+    background: #86d0f0 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Crect x='-3' y='-3' width='6' height='6' fill='%23FFFFFF' opacity='0.38' transform='translate(32 32) rotate(45)'/%3E%3C/svg%3E") repeat;
+    background-size: 6.4vmin 6.4vmin;
+}
+
+.attract-page {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2.2vmin;
+    padding: 3vmin 6vmin;
+    font-family: "Barlow Semi Condensed", "Baloo 2", sans-serif;
+    color: #3d2e1d;
+}
+
+/* top welcome badge */
+.attract-badge {
+    display: flex;
+    align-items: center;
+    gap: 1.8vmin;
+    padding: 0.8vmin 3vmin;
+    border: 0.4vmin solid #3d2e1d;
+    border-radius: 1.2vmin;
+    background: #ffc93c;
+    box-shadow: 0 0.5vmin 0 #3d2e1d;
+}
+
+.ab-zh {
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    font-weight: 900;
+    font-size: 2.6vmin;
+}
+
+.ab-diamond {
+    width: 0.9vmin;
+    height: 0.9vmin;
+    background: #3d2e1d;
+    transform: rotate(45deg);
+}
+
+.ab-en {
+    font-size: 2.1vmin;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+
+/* the 象棋 wordmark artwork (from the design's artboard) */
+.attract-wordmark {
+    margin: 0;
+    width: min(84vmin, 96%);
+}
+
+.attract-wordmark svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.attract-tiles {
+    display: flex;
+    gap: 1.2vmin;
+}
+
+.at-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 5.4vmin;
+    height: 5.8vmin;
+    border: 0.35vmin solid #3d2e1d;
+    border-radius: 0.6vmin;
+    box-shadow: inset 0 0.3vmin 0 rgba(255, 255, 255, 0.3), 0 0.6vmin 0 #3d2e1d;
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    font-weight: 900;
+    font-size: 3.4vmin;
+    line-height: 1;
+}
+.at-tile:nth-child(odd) { transform: rotate(-3deg); }
+.at-tile:nth-child(even) { transform: rotate(2deg); }
+.t-red { background: #d4352b; color: #fff; }
+.t-yellow { background: #ffc93c; }
+.t-green { background: #4fd08a; }
+.t-blue { background: #1f62e3; color: #fff; }
+.t-purple { background: #8a5be6; color: #fff; }
+.t-orange { background: #ff8a2b; }
+.t-pink { background: #ff8fbc; }
+
+/* the river banner: 楚河 … 漢界 */
+.attract-river {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: min(82%, 130vmin);
+    padding: 0.8vmin 3.4vmin;
+    border: 0.4vmin solid #3d2e1d;
+    border-radius: 1.6vmin;
+    background: #3f86b8 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='30'%3E%3Cpath d='M0 12 L14 2 L28 12 L42 2 L56 12' fill='none' stroke='%239FD2EC' stroke-width='4'/%3E%3C/svg%3E") repeat;
+    background-size: 5.6vmin 3vmin;
+    box-shadow: 0 0.6vmin 0 #3d2e1d;
+}
+
+.ar-zh {
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    font-weight: 900;
+    font-size: 3.6vmin;
+}
+
+.ar-sub {
+    padding: 0.5vmin 2.6vmin;
+    border: 0.3vmin solid #3d2e1d;
+    border-radius: 0.6vmin;
+    background: #fff6dc;
+    font-size: 2.2vmin;
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+
+/* the two big toy buttons */
+.attract-modes {
+    display: flex;
+    align-items: stretch;
+    gap: 4.5vmin;
+    width: 100%;
+    justify-content: center;
+}
+
+@media (max-aspect-ratio: 1/1) {
+    .attract-modes { flex-direction: column; align-items: center; }
+}
+
+.toybtn {
+    display: flex;
+    align-items: center;
+    gap: 2.6vmin;
+    width: 62vmin;
+    max-width: 44%;
+    min-height: 20vmin;
+    padding: 2vmin 3.4vmin;
+    border: 0.5vmin solid #3d2e1d;
+    border-radius: 2vmin;
+    box-shadow: inset 0 0.5vmin 0 rgba(255, 255, 255, 0.28), 0 1.1vmin 0 #3d2e1d;
+    color: #fff;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.08s, box-shadow 0.08s;
+}
+
+@media (max-aspect-ratio: 1/1) {
+    .toybtn { max-width: 82%; }
+}
+
+.toybtn:hover { filter: brightness(1.06); }
+.toybtn:active {
+    transform: translateY(0.9vmin);
+    box-shadow: inset 0 0.5vmin 0 rgba(255, 255, 255, 0.28), 0 0.2vmin 0 #3d2e1d;
+}
+
+/* hovering a mode tosses its disc like a coin: up, tumbling, back down */
+.toybtn {
+    perspective: 80vmin;
+}
+
+.toybtn:hover .tb-disc {
+    animation: coin-toss 0.85s;
+}
+
+@keyframes coin-toss {
+    0% {
+        transform: translateY(0) rotateX(0) rotateZ(0);
+        animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1); /* launch */
+    }
+    45% {
+        transform: translateY(-3.4vmin) rotateX(540deg) rotateZ(4deg); /* hang at the top */
+        animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4); /* fall */
+    }
+    100% {
+        transform: translateY(0) rotateX(720deg) rotateZ(0); /* lands face-up */
+    }
+}
+
+.tb-blue { background: #1f62e3; }
+.tb-red { background: #d4352b; }
+.tb-green { background: #2ea86e; }
+
+/* the card button is wheat-yellow — ink text instead of white */
+.tb-yellow { background: #eec95c; }
+.tb-yellow .tb-en { color: #3d2e1d; text-shadow: none; }
+.tb-yellow .tb-zh { color: #7a4a28; text-shadow: none; }
+.tb-yellow .tb-sub { color: #6f5a3e; }
+
+/* the wooden xiangqi disc on each button */
+.tb-disc {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 12vmin;
+    height: 12vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #fdf6e6 0%, #e3c791 52%, #c2a674 100%);
+    box-shadow:
+        0 0.8vmin 0 #7a4a28,
+        0 1.4vmin 1.6vmin rgba(0, 0, 0, 0.35),
+        inset 0 0 0 0.3vmin rgba(255, 255, 255, 0.4),
+        inset 0 -0.7vmin 1.2vmin rgba(90, 60, 10, 0.22);
+}
+
+.tb-disc::before {
+    content: "";
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    border: 0.3vmin solid #7a3e12;
+    opacity: 0.7;
+}
+
+.tb-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5vmin;
+    min-width: 0;
+}
+
+.tb-en { order: 1; }
+.tb-zh { order: 2; }
+.tb-sub { order: 3; }
+
+/* Chinese mode: 中文 on top, English below */
+body.lang-zh .tb-zh { order: 1; }
+body.lang-zh .tb-en { order: 2; }
+
+/* and the active language is the BIG line, the other one secondary */
+body.lang-zh .tb-zh {
+    font-size: 4.6vmin;
+}
+
+body.lang-zh .tb-en {
+    font-size: 3.2vmin;
+    font-weight: 600;
+    opacity: 0.85;
+    text-shadow: none;
+}
+
+.tb-en {
+    font-size: 4.6vmin;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 0.35vmin 0 #3d2e1d;
+}
+
+.tb-zh {
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    font-weight: 900;
+    font-size: 3.2vmin;
+    line-height: 1.15;
+    color: #ffe27a;
+    text-shadow: 0 0.3vmin 0 #3d2e1d;
+}
+
+.tb-sub {
+    font-size: 2.1vmin;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+/* step 2: the tap hint + the card/phone sub-choice */
+.attract-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2.4vmin;
+    width: 100%;
+}
+
+.attract-hint-text {
+    font-size: 3.4vmin;
+    font-weight: 700;
+    text-align: center;
+}
+
+
+.attract-back {
+    font-family: inherit;
+    font-size: 2vmin;
+    font-weight: 600;
+    color: #3d2e1d;
+    background: none;
+    border: none;
+    text-decoration: underline;
+    text-underline-offset: 0.4vmin;
+    cursor: pointer;
+}
+
+/* the bobbing guest pill + quiet staff link at the bottom */
+.attract-pill {
+    display: flex;
+    align-items: center;
+    padding: 1vmin 3vmin;
+    border: 0.4vmin solid #3d2e1d;
+    border-radius: 1vmin;
+    background: #fff;
+    box-shadow: 0 0.5vmin 0 #3d2e1d;
+    font-family: inherit;
+    font-size: 2.2vmin;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #3d2e1d;
+    cursor: pointer;
+    animation: attract-bob 3.2s ease-in-out infinite;
+}
+
+@keyframes attract-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-0.9vmin); }
+}
+
+.attract-staff {
+    font-family: inherit;
+    font-size: 1.7vmin;
+    color: rgba(27, 42, 87, 0.65);
+    background: none;
+    border: none;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* the scattered wooden piece discs from the design's artboard */
+.attract-pieces {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+/* the design's golden xiangqi board, between the tiles and the content */
+.attract-board {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+/* confetti burst: each piece flies out from the screen center, staggered
+   like a party popper. The attract page's display toggle restarts it every
+   time the welcome screen appears. */
+.cf {
+    animation: confetti-burst 0.9s cubic-bezier(0.16, 0.8, 0.3, 1) both;
+    animation-delay: var(--d, 0s);
+}
+
+@keyframes confetti-burst {
+    0% {
+        transform: translate(var(--fx), var(--fy)) scale(0);
+        opacity: 0;
+    }
+    55% {
+        transform: translate(calc(var(--fx) * -0.06), calc(var(--fy) * -0.06)) scale(1.18);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(0, 0) scale(1);
+        opacity: 1;
+    }
+}
+
+.attract-board svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* background layers stay under the content (and keep their absolute sizing) */
+.attract-page > * {
+    position: relative;
+    z-index: 1;
+}
+
+.attract-page > .attract-pieces,
+.attract-page > .attract-board {
+    position: absolute;
+    z-index: 0;
+}
+
+.at-piece {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 11vmin;
+    height: 11vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #fdf6e6 0%, #e3c791 52%, #c2a674 100%);
+    box-shadow:
+        0 0.8vmin 0 #7a4a28,
+        0 1.4vmin 1.6vmin rgba(0, 0, 0, 0.3),
+        inset 0 0 0 0.3vmin rgba(255, 255, 255, 0.4),
+        inset 0 -0.7vmin 1.2vmin rgba(90, 60, 10, 0.22);
+    transform: translate(-50%, -50%) rotate(var(--rot));
+    font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    font-weight: 900;
+    font-size: 5.4vmin;
+    line-height: 1;
+    color: #d4352b;
+    text-shadow: 0 0.3vmin 0 rgba(61, 46, 29, 0.35);
+    /* the discs are draggable toys on the attract page */
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.at-piece.dragging {
+    cursor: grabbing;
+    transform: translate(-50%, -50%) rotate(var(--rot)) scale(1.12);
+    box-shadow:
+        0 1.6vmin 0 #7a4a28,
+        0 2.4vmin 2.6vmin rgba(0, 0, 0, 0.4),
+        inset 0 0 0 0.3vmin rgba(255, 255, 255, 0.4),
+        inset 0 -0.7vmin 1.2vmin rgba(90, 60, 10, 0.22);
+}
+
+.at-piece::before {
+    content: "";
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    border: 0.3vmin solid #a3703f;
+    opacity: 0.75;
+}
+
+.at-piece.navy {
+    color: #3d2e1d;
+    text-shadow: none;
+}
+
+/* a public screen must not expose the signed-in player's friends */
+body.kiosk #btnFriends {
+    display: none;
+}

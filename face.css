@@ -1,0 +1,326 @@
+:root {
+    --accent: #4dd8ff;
+    --warn: #ff5a5a;
+    --win: #5aff8a;
+    --bg: #070b12;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+}
+
+.stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.6s;
+}
+
+/* ---------- ambient glow behind the face ---------- */
+.glow {
+    position: absolute;
+    width: 75vmin;
+    height: 75vmin;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+            color-mix(in srgb, var(--accent) 16%, transparent),
+            transparent 70%);
+    filter: blur(12px);
+    transition: background 0.6s;
+}
+
+/* ---------- face ---------- */
+.face {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6vmin;
+    transition: opacity 0.6s, filter 0.6s, transform 0.6s;
+}
+
+/* end screen: face shrinks up so the result text owns the center */
+body.endscreen .face {
+    transform: scale(0.55) translateY(-24vmin);
+}
+
+body.endscreen .banner {
+    display: none;
+}
+
+.eyes-row {
+    display: flex;
+    gap: 15vmin;
+}
+
+.eye {
+    width: 16vmin;
+    height: 16vmin;
+    background: var(--accent);
+    border-radius: 50%;
+    position: relative;
+    transition: all 0.45s cubic-bezier(0.6, 0, 0.3, 1);
+    animation: blink 4.2s infinite;
+}
+
+.pupil {
+    position: absolute;
+    width: 42%;
+    height: 42%;
+    background: var(--bg);
+    border-radius: 50%;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    transition: transform 0.35s, opacity 0.3s;
+}
+
+@keyframes blink {
+
+    0%,
+    93%,
+    100% {
+        transform: scaleY(1);
+    }
+
+    96% {
+        transform: scaleY(0.06);
+    }
+}
+
+@keyframes blinkSlow {
+
+    0%,
+    88%,
+    100% {
+        transform: scaleY(0.55);
+    }
+
+    94% {
+        transform: scaleY(0.05);
+    }
+}
+
+@keyframes look {
+
+    0%,
+    100% {
+        transform: translate(-50%, -50%);
+    }
+
+    25% {
+        transform: translate(-78%, -58%);
+    }
+
+    50% {
+        transform: translate(-28%, -42%);
+    }
+
+    75% {
+        transform: translate(-60%, -30%);
+    }
+}
+
+/* ---------- mouth ---------- */
+.mouth {
+    width: 34vmin;
+    overflow: visible;
+}
+
+.mouth path {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 5;
+    stroke-linecap: round;
+    opacity: 0;
+    transition: opacity 0.3s, stroke 0.4s;
+}
+
+.mouth path.active {
+    opacity: 1;
+}
+
+#m-open {
+    fill: var(--accent);
+    stroke: none;
+}
+
+/* ---------- banner ---------- */
+.banner {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 6vh;
+    text-align: center;
+    pointer-events: none;
+}
+
+.state-label {
+    color: var(--accent);
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    font-size: 2.2vmin;
+    opacity: 0.85;
+    transition: color 0.4s;
+}
+
+.message {
+    color: #dfe9f3;
+    font-size: 3.4vmin;
+    margin-top: 1.4vmin;
+    min-height: 4.5vmin;
+}
+
+/* ---------- per-state accents ---------- */
+.state-sad,
+.state-lose {
+    --accent: var(--warn);
+}
+
+.state-win {
+    --accent: var(--win);
+}
+
+/* ---------- per-state behavior ---------- */
+/* your_turn: the robot is nervous — trembling eyes, darting pupils */
+.state-your_turn .eye {
+    animation: blink 4.2s infinite, worry 0.9s infinite ease-in-out;
+}
+
+.state-your_turn .pupil {
+    animation: look 1.1s infinite ease-in-out;
+}
+
+@keyframes worry {
+
+    0%,
+    100% {
+        transform: scale(1.07) translateY(0);
+    }
+
+    50% {
+        transform: scale(1.07) translateY(-0.6vmin);
+    }
+}
+
+/* thinking: picasso-style pondering — mismatched circular eyes (one big,
+   one smaller and raised), pupils drifting, a slight tilt of the head.
+   Blink is paused: the statue-stare is the point. */
+.state-thinking .face {
+    transform: rotate(-1.5deg);
+}
+
+.state-thinking .eye {
+    animation: none;
+    transform: scale(1.12);
+}
+
+.state-thinking .eye.right {
+    transform: scale(0.85) translateY(-1.4vmin);
+}
+
+.state-thinking .pupil {
+    animation: look 2.6s infinite ease-in-out;
+}
+
+.state-happy .eye,
+.state-win .eye {
+    background: transparent;
+    border-top: 3vmin solid var(--accent);
+    border-radius: 100% 100% 0 0 / 240% 240% 0 0;
+    height: 10vmin;
+    margin-top: 3vmin;
+    animation: none;
+    transform: none;
+}
+
+.state-happy .pupil,
+.state-win .pupil {
+    opacity: 0;
+}
+
+.state-lose .eye {
+    animation: none;
+    transform: scaleY(0.72) rotate(-3deg);
+}
+
+.state-lose .eye.right {
+    transform: scaleY(0.72) rotate(3deg);
+}
+
+.state-sad .eye {
+    animation: none;
+    transform: scaleY(0.85) rotate(-4deg);
+}
+
+.state-sad .eye.right {
+    transform: scaleY(0.85) rotate(4deg);
+}
+
+.state-sad .mouth {
+    transform: rotate(0deg);
+}
+
+.state-waiting .face {
+    opacity: 0.45;
+    filter: saturate(0.5);
+}
+
+.state-waiting .eye {
+    animation: blinkSlow 5s infinite;
+}
+
+/* ---------- dev panel ---------- */
+.devpanel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #cfe3f5;
+    font-size: 13px;
+    z-index: 10;
+    backdrop-filter: blur(4px);
+    max-width: 240px;
+}
+
+.devpanel h4 {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-bottom: 6px;
+}
+
+.devpanel button {
+    margin: 3px;
+    padding: 6px 10px;
+    background: #16202e;
+    color: #cfe8ff;
+    border: 1px solid #2c3e55;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.devpanel button:hover {
+    background: #1f2d40;
+}
+
+.devpanel.hidden {
+    display: none;
+}

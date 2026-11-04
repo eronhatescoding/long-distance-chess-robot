@@ -1,0 +1,591 @@
+/* i18n — English / 中文 dictionaries. Every user-facing string has a key.
+ * The active language persists in localStorage and defaults to the browser
+ * language. t() renders with {var} interpolation and falls back to English.
+ *
+ * zh translations are first-pass — get a native speaker to review once.
+ */
+
+const DICTS = {
+  en: {
+    // face states
+    "state.idle.label": "Idle",
+    "state.your_turn.label": "Your Turn",
+    "state.your_turn.msg": "Your move",
+    "state.thinking.label": "Thinking",
+    "state.thinking.msg": "Robot is thinking…",
+    "state.happy.label": "Happy",
+    "state.sad.label": "Illegal Move",
+    "state.sad.msg": "Illegal move — please undo",
+    "state.waiting.label": "Waiting",
+    "state.waiting.msg": "Waiting for opponent…",
+    "state.win.label": "Victory",
+    "state.win.msg": "Checkmate — robot wins",
+    "state.lose.label": "Defeat",
+    "state.lose.msg": "Checkmate — you win",
+
+    // lobby (static card text)
+    "lobby.welcome": "Welcome, {name}.",
+    "lobby.connecting": "connecting…",
+    "card.bot.title": "Challenge Bot",
+    "card.bot.sub": "Select difficulty",
+    "card.bot.play": "Play vs robot",
+    "diff.novice": "Novice",
+    "diff.gm": "Grandmaster",
+    "card.new.title": "Start New Match",
+    "card.new.sub": "Configure your game",
+    "card.new.create": "Create party",
+    "card.new.quick": "or quick match vs a stranger",
+    "time.blitz": "Blitz",
+    "time.rapid": "Rapid",
+    "time.classic": "Classic",
+    "card.join.title": "Join Lobby via Code",
+    "card.join.ph": "ENTER CODE (e.g. A45F)",
+    "card.join.join": "Join",
+
+    // watch panel
+    "watch.live": "Live games",
+    "watch.past": "Past games",
+    "watch.refresh": "refresh",
+    "watch.watch": "Watch",
+    "watch.replay": "Replay",
+    "watch.empty-live": "no live games right now",
+    "watch.empty-past": "no replays from you or your friends yet",
+    "watch.row": "{a} vs {b} · {m} min · {status}",
+    "watch.row-nc": "{a} vs {b} · {status}",
+    "watch.row-past": "{a} vs {b} · {n} moves",
+    "watch.row-won": " · {name} won",
+    "watch.status.playing": "playing",
+    "watch.status.waiting": "waiting",
+
+    // auth screen
+    "auth.title": "Robot Chess",
+    "auth.sub": "sign in to watch — tap your card or phone at a machine to play",
+    "auth.tap": "tap detected — signing you in…",
+    "auth.email": "email",
+    "auth.password": "password",
+    "auth.signin": "Sign in",
+    "auth.create": "Create account",
+    "auth.to-create": "new here? create an account",
+    "auth.to-signin": "have an account? sign in",
+    "auth.err.invalid-email": "that email doesn't look right",
+    "auth.err.invalid-credential": "wrong email or password",
+    "auth.err.user-not-found": "no account with that email",
+    "auth.err.wrong-password": "wrong password",
+    "auth.err.email-in-use": "that email already has an account — sign in instead",
+    "auth.err.weak-password": "password needs at least 6 characters",
+    "auth.err.too-many": "too many tries — wait a minute and retry",
+    "auth.err.network": "network error — check your connection",
+    "auth.err.not-allowed": "email sign-in isn't enabled yet — ask the project owner",
+    "auth.err.bad-token": "that tap link is invalid or expired — tap again",
+    "auth.err.token-mismatch": "that tap link belongs to a different project",
+    "auth.err.redeem": "that tap link didn't work — tap again",
+
+    // mode banner
+    "mode.play": "play mode — tap session active",
+    "mode.spectator": "spectator mode — tap your card or phone at a machine to play",
+    "mode.guest": "guest mode — play vs the robot, no sign-in needed",
+
+    // guest kiosk (offline mode)
+    "guest.name": "Guest",
+
+    // tap session ended elsewhere (app Disconnect, timeout) — back to spectator
+    "session.ended": "session ended — tap again to play",
+
+    // kiosk attract screen (station touchscreen resting state)
+    "kiosk.title": "Tap to play",
+    "kiosk.sub": "hold your card or phone near the reader",
+    "kiosk.guest": "or play as guest",
+    "kiosk.staff": "staff sign in",
+    "kiosk.signing-in": "signing you in…",
+    "kiosk.mode-title": "how do you want to play?",
+    "kiosk.mode-screen": "on this screen",
+    "kiosk.mode-phone": "on my phone",
+    "kiosk.tap-hint-screen": "now tap your card or phone near the reader",
+    "kiosk.tap-hint-phone": "now tap your phone near the reader",
+    "kiosk.tap-hint-card": "now tap your card near the reader",
+    "kiosk.tapkind": "tap with a card or your phone?",
+    "kiosk.mode-screen-sub": "tap your card or phone to start here",
+    "kiosk.mode-phone-sub": "tap your phone to play there",
+
+    // special games + profile cards
+    "card.variant.title": "Special Games",
+    "card.variant.sub": "wild rules — played on the machine",
+    "card.variant.play": "Play variant",
+    "variant.blast": "Blast captures (3×3)",
+    "variant.freehorse": "Free horse",
+    "variant.flying": "Flying general",
+    "card.profile.title": "Profile",
+    "card.profile.none": "no username yet",
+    "card.profile.current": "username: {name}",
+    "card.profile.ph": "choose a username",
+    "card.profile.save": "Save username",
+    "card.profile.saved": "saved!",
+    "card.profile.invalid": "3–16 letters, numbers, or _",
+    "kiosk.change-mode": "← change",
+    "kiosk.guest-back": "← back",
+    "kiosk.guest2": "or play as guest on this screen",
+
+    // in-game view toggle
+    "view.board": "show board",
+    "view.face": "show face",
+
+    // PiP camera/mic controls (button titles describe the action)
+    "pip.cam-on": "turn camera on",
+    "pip.cam-off": "turn camera off",
+    "pip.mic-on": "turn microphone on",
+    "pip.mic-off": "turn microphone off",
+    "cam.on": "camera: on",
+    "cam.off": "camera: off",
+
+    // station-kiosk end-of-game CTAs
+    "go.play-again": "Play again",
+    "go.leave": "Leave",
+
+    // kiosk phone-or-screen choice (a phone tapped at the machine)
+    "ask.title": "{name} is here!",
+    "ask.sub": "where do you want to play?",
+    "ask.screen": "on this screen",
+    "ask.phone": "on my phone",
+
+    // top buttons
+    "btn.signout": "Sign out",
+    "btn.friends": "Friends",
+    "btn.leave": "Leave party",
+    "btn.cancel": "Cancel",
+    "btn.stopwatch": "Stop watching",
+    "btn.endgame": "End game",
+    "btn.rematch": "Rematch",
+    "btn.lang": "中文",
+
+    // lobby status messages
+    "lobby.connected": "connected — pick an option",
+    "lobby.connected-spec": "connected — pick a game to watch",
+    "lobby.back": "back in the lobby",
+    "lobby.creating": "creating party…",
+    "lobby.party": "party code: {code} — share it with your friend",
+    "lobby.matchmaking": "looking for an opponent…",
+    "lobby.solo": "starting solo game…",
+    "station.requesting": "contacting the machine…",
+    "station.setting-up": "waiting for the machine to set up the board…",
+    "station.ending": "ending after the current move…",
+    "station.failed.busy": "the machine is busy right now",
+    "station.failed.unavailable": "machine unavailable — please find staff",
+    "station.failed.timeout": "the machine didn't respond — please try again",
+    "station.failed.camera_not_ready": "the camera isn't ready — please find staff",
+    "station.failed.failed": "couldn't start the game — please try again",
+    "lobby.joining": "joining party {code}…",
+    "lobby.enter-code": "enter the 4-letter party code",
+    "lobby.ended": "the game you were watching has ended",
+    "lobby.lost": "connection lost — reconnecting…",
+
+    // connection pill
+    "conn.offline": "server offline — reconnecting…",
+    "conn.nosignin": "not signed in",
+    "conn.lobby": "in lobby",
+    "conn.solo": "solo vs the robot",
+    "conn.waiting": "party {code} — waiting for opponent…",
+    "conn.video": "party {code} · opponent connected · video on",
+    "conn.connected": "party {code} · opponent connected",
+    "conn.watching": "watching {a} vs {b}",
+
+    // turn + coin flip
+    "turn.mine": "Your turn",
+    "turn.theirs": "Opponent's turn",
+    "turn.robot": "Robot's turn",
+    "turn.spec": "{name}'s turn",
+    "coin.flipping": "coin flip…",
+    "coin.you": "you go first!",
+    "coin.robot": "robot goes first",
+    "coin.opp": "opponent goes first",
+
+    // clocks
+    "clock.you": "you",
+    "clock.opp": "opp",
+    "clock.robot": "robot",
+
+    // game over
+    "go.win": "YOU WIN",
+    "go.lose": "YOU LOSE",
+    "go.draw": "DRAW",
+    "go.specwin": "{name} WINS",
+    "go.vs": "vs",
+    "go.you": "you",
+    "go.opponent": "opponent",
+    "go.robot": "robot",
+    "end.rematch-wait": "rematch? returning to lobby in {n}s…",
+    "end.opponent-rematch": "opponent wants a rematch!",
+    "end.declined": "opponent declined — back to lobby…",
+    "end.waiting-opp": "waiting for opponent…",
+    "end.rematch": "rematch?",
+    "end.rematching": "rematch…",
+
+    // blocker
+    "block.title": "Illegal move",
+    "block.hint": "Fix the board — waiting for camera verification…",
+    "block.sync": "Sync error",
+    "block.replaced": "This station's screen opened in another tab",
+    "block.replaced-hint": "This tab no longer receives taps. Tap here to take it back.",
+    "block.mistake": "That move isn't allowed",
+    "block.mistake-hint": "Please move the piece back, then try a different move.",
+    "station.ready": "your move — go ahead",
+    "station.wait": "please wait…",
+
+    // friends
+    "friends.title": "Friends",
+    "friends.add": "Add",
+    "friends.ph": "friend's email or username",
+    "friends.requests": "requests",
+    "friends.yours": "your friends",
+    "friends.empty": "no friends yet — add someone by email",
+    "friends.accept": "Accept",
+    "friends.decline": "Decline",
+    "friends.cancel": "Cancel",
+    "friends.remove": "Remove",
+    "friends.challenge": "Challenge",
+    "friends.waiting": "{name} — waiting…",
+    "friends.err-email": "enter an email",
+    "friends.err-self": "that's you",
+    "friends.err-exists": "you're already connected",
+    "friends.err-lookup": "lookup failed",
+    "friends.challenging": "challenging {name}…",
+    "friends.popup": "{name} challenges you!",
+    "friends.popup-hint": "tap your card at a machine to accept",
+    "friends.popup-accept": "Accept",
+    "friends.popup-decline": "Decline",
+    "friends.toast-new": "{name} wants to be friends",
+    "friends.toast-sent": "friend request sent to {name}",
+    "friends.toast-fail": "couldn't send request: {err}",
+    "friends.tap-to-play": "tap your card at a machine to play",
+    "friends.decline-title": "why are you declining?",
+    "friends.reason-not_at_machine": "I'm not at my machine",
+    "friends.reason-busy": "I'm busy",
+    "friends.reason-later": "maybe another time",
+    "friends.reason-custom-ph": "custom reply…",
+    "friends.send": "Send",
+    "friends.back": "back",
+    "friends.notify-declined": "{name} declined: {reason}",
+    "friends.notify-declined-plain": "{name} declined your challenge",
+    "friends.notify-timeout": "{name} didn't respond — they may be busy",
+    "friends.cooldown": "wait {n}s to re-challenge",
+    "friends.challenge-pending": "challenge already sent",
+    "friends.cooldown-btn": "re-challenge in {n}s",
+    "friends.tap-to-play-short": "tap to play",
+
+    // replay
+    "replay.start": "start position",
+    "replay.prev": "‹ prev",
+    "replay.next": "next ›",
+    "replay.play": "play",
+    "replay.pause": "pause",
+    "replay.close": "close",
+    "replay.title": "{a} vs {b} · {m} min",
+    "replay.title-nc": "{a} vs {b}",
+
+    // spectator extras
+    "lobby.welcome-default": "Welcome, Challenger.",
+    "spec.moves-so-far": "{n} moves played so far",
+    "spec.left": "{name} left the game",
+  },
+
+  zh: {
+    "state.idle.label": "待机",
+    "state.your_turn.label": "你的回合",
+    "state.your_turn.msg": "轮到你了",
+    "state.thinking.label": "思考中",
+    "state.thinking.msg": "机器人思考中…",
+    "state.happy.label": "开心",
+    "state.sad.label": "违规走子",
+    "state.sad.msg": "违规走子 — 请撤回",
+    "state.waiting.label": "等待中",
+    "state.waiting.msg": "等待对手…",
+    "state.win.label": "胜利",
+    "state.win.msg": "将死 — 机器人获胜",
+    "state.lose.label": "失败",
+    "state.lose.msg": "将死 — 你赢了",
+
+    "lobby.welcome": "欢迎，{name}。",
+    "lobby.connecting": "连接中…",
+    "card.bot.title": "挑战机器人",
+    "card.bot.sub": "选择难度",
+    "card.bot.play": "对战机器人",
+    "diff.novice": "新手",
+    "diff.gm": "特级大师",
+    "card.new.title": "开始新对局",
+    "card.new.sub": "设置对局",
+    "card.new.create": "创建派对",
+    "card.new.quick": "或与陌生人快速匹配",
+    "time.blitz": "超快棋",
+    "time.rapid": "快棋",
+    "time.classic": "经典慢棋",
+    "card.join.title": "输入代码加入",
+    "card.join.ph": "输入代码（如 A45F）",
+    "card.join.join": "加入",
+
+    "watch.live": "直播对局",
+    "watch.past": "历史对局",
+    "watch.refresh": "刷新",
+    "watch.watch": "观战",
+    "watch.replay": "回放",
+    "watch.empty-live": "目前没有直播对局",
+    "watch.empty-past": "暂无你或好友的对局回放",
+    "watch.row": "{a} vs {b} · {m} 分钟 · {status}",
+    "watch.row-nc": "{a} vs {b} · {status}",
+    "watch.row-past": "{a} vs {b} · {n} 步",
+    "watch.row-won": " · {name} 获胜",
+    "watch.status.playing": "进行中",
+    "watch.status.waiting": "等待中",
+
+    "auth.title": "机器人象棋",
+    "auth.sub": "登录观战 — 在机器上刷卡或刷手机即可对战",
+    "auth.tap": "检测到刷卡 — 登录中…",
+    "auth.email": "邮箱",
+    "auth.password": "密码",
+    "auth.signin": "登录",
+    "auth.create": "创建账号",
+    "auth.to-create": "新用户？创建账号",
+    "auth.to-signin": "已有账号？登录",
+    "auth.err.invalid-email": "邮箱格式不正确",
+    "auth.err.invalid-credential": "邮箱或密码错误",
+    "auth.err.user-not-found": "该邮箱没有账号",
+    "auth.err.wrong-password": "密码错误",
+    "auth.err.email-in-use": "该邮箱已有账号 — 请直接登录",
+    "auth.err.weak-password": "密码至少需要 6 位",
+    "auth.err.too-many": "尝试次数过多 — 请稍后再试",
+    "auth.err.network": "网络错误 — 请检查连接",
+    "auth.err.not-allowed": "邮箱登录尚未启用 — 请联系管理员",
+    "auth.err.bad-token": "刷卡链接无效或已过期 — 请重新刷卡",
+    "auth.err.token-mismatch": "该刷卡链接属于其他项目",
+    "auth.err.redeem": "刷卡链接无效 — 请重新刷卡",
+
+    "mode.play": "对战模式 — 刷卡会话已激活",
+    "mode.spectator": "观战模式 — 在机器上刷卡或刷手机即可对战",
+    "mode.guest": "访客模式 — 直接与机器人对战，无需登录",
+
+    "guest.name": "访客",
+
+    "session.ended": "会话已结束 — 请重新刷卡或刷手机",
+
+    "kiosk.title": "刷卡开始游戏",
+    "kiosk.sub": "请将卡片或手机靠近读卡器",
+    "kiosk.guest": "或以访客身份游玩",
+    "kiosk.staff": "工作人员登录",
+    "kiosk.signing-in": "正在登录…",
+    "kiosk.mode-title": "你想怎么玩？",
+    "kiosk.mode-screen": "在此屏幕上玩",
+    "kiosk.mode-phone": "在手机上玩",
+    "kiosk.tap-hint-screen": "现在请将卡片或手机靠近读卡器",
+    "kiosk.tap-hint-phone": "现在请将手机靠近读卡器",
+    "kiosk.tap-hint-card": "现在请将卡片靠近读卡器",
+    "kiosk.tapkind": "刷卡还是刷手机？",
+    "kiosk.mode-screen-sub": "刷卡或刷手机即可在此屏幕开始",
+    "kiosk.mode-phone-sub": "刷手机即可在手机上玩",
+
+    "card.variant.title": "特殊玩法",
+    "card.variant.sub": "特殊规则 — 在机器上游玩",
+    "card.variant.play": "开始特殊局",
+    "variant.blast": "爆炸吃子(3×3)",
+    "variant.freehorse": "自由马",
+    "variant.flying": "飞将",
+    "card.profile.title": "个人资料",
+    "card.profile.none": "还没有用户名",
+    "card.profile.current": "用户名：{name}",
+    "card.profile.ph": "选择一个用户名",
+    "card.profile.save": "保存用户名",
+    "card.profile.saved": "已保存！",
+    "card.profile.invalid": "3–16 位字母、数字或 _",
+    "kiosk.change-mode": "← 返回",
+    "kiosk.guest-back": "← 返回",
+    "kiosk.guest2": "或以访客身份在此屏幕上玩",
+
+    "view.board": "查看棋盘",
+    "view.face": "查看表情",
+
+    "pip.cam-on": "打开摄像头",
+    "pip.cam-off": "关闭摄像头",
+    "pip.mic-on": "打开麦克风",
+    "pip.mic-off": "关闭麦克风",
+    "cam.on": "摄像头：开",
+    "cam.off": "摄像头：关",
+
+    "go.play-again": "再来一局",
+    "go.leave": "离开",
+
+    "ask.title": "{name}来了！",
+    "ask.sub": "你想在哪里玩？",
+    "ask.screen": "在此屏幕上玩",
+    "ask.phone": "在手机上玩",
+
+    "btn.signout": "退出登录",
+    "btn.friends": "好友",
+    "btn.leave": "退出派对",
+    "btn.cancel": "取消",
+    "btn.stopwatch": "停止观战",
+    "btn.endgame": "结束对局",
+    "btn.rematch": "再来一局",
+    "btn.lang": "EN",
+
+    "lobby.connected": "已连接 — 请选择",
+    "lobby.connected-spec": "已连接 — 选择对局观战",
+    "lobby.back": "已回到大厅",
+    "lobby.creating": "创建派对中…",
+    "lobby.party": "派对代码：{code} — 分享给你的好友",
+    "lobby.matchmaking": "正在匹配对手…",
+    "lobby.solo": "正在开始单人游戏…",
+    "station.requesting": "正在连接机器…",
+    "station.setting-up": "正在等待机器摆棋…",
+    "station.ending": "走完这一步就结束…",
+    "station.failed.busy": "机器正在使用中",
+    "station.failed.unavailable": "机器暂时不可用 — 请联系工作人员",
+    "station.failed.timeout": "机器没有回应 — 请再试一次",
+    "station.failed.camera_not_ready": "摄像头未就绪 — 请联系工作人员",
+    "station.failed.failed": "无法开始游戏 — 请再试一次",
+    "lobby.joining": "正在加入派对 {code}…",
+    "lobby.enter-code": "请输入 4 位派对代码",
+    "lobby.ended": "你观战的对局已结束",
+    "lobby.lost": "连接断开 — 重连中…",
+
+    "conn.offline": "服务器离线 — 重连中…",
+    "conn.nosignin": "未登录",
+    "conn.lobby": "在大厅",
+    "conn.solo": "单人对战机器人",
+    "conn.waiting": "派对 {code} — 等待对手…",
+    "conn.video": "派对 {code} · 对手已连接 · 视频已开启",
+    "conn.connected": "派对 {code} · 对手已连接",
+    "conn.watching": "正在观战 {a} vs {b}",
+
+    "turn.mine": "你的回合",
+    "turn.theirs": "对手回合",
+    "turn.robot": "机器人回合",
+    "turn.spec": "{name} 的回合",
+    "coin.flipping": "掷硬币…",
+    "coin.you": "你先手！",
+    "coin.robot": "机器人先手",
+    "coin.opp": "对手先手",
+
+    "clock.you": "你",
+    "clock.opp": "对手",
+    "clock.robot": "机器人",
+
+    "go.win": "你赢了",
+    "go.lose": "你输了",
+    "go.draw": "平局",
+    "go.specwin": "{name} 获胜",
+    "go.vs": "对战",
+    "go.you": "你",
+    "go.opponent": "对手",
+    "go.robot": "机器人",
+    "end.rematch-wait": "再来一局？{n} 秒后返回大厅…",
+    "end.opponent-rematch": "对手想再来一局！",
+    "end.declined": "对手拒绝 — 返回大厅…",
+    "end.waiting-opp": "等待对手…",
+    "end.rematch": "再来一局？",
+    "end.rematching": "再来一局…",
+
+    "block.title": "违规走子",
+    "block.hint": "请摆正棋盘 — 等待摄像头验证…",
+    "block.sync": "同步错误",
+    "block.replaced": "此机台的屏幕已在另一个标签页打开",
+    "block.replaced-hint": "此标签页不再接收刷卡。点按此处收回控制权。",
+    "block.mistake": "这一步不符合规则",
+    "block.mistake-hint": "请把棋子放回原位，再重新走棋。",
+    "station.ready": "轮到你了，请走棋",
+    "station.wait": "请稍候…",
+
+    "friends.title": "好友",
+    "friends.add": "添加",
+    "friends.ph": "好友邮箱或用户名",
+    "friends.requests": "请求",
+    "friends.yours": "我的好友",
+    "friends.empty": "暂无好友 — 通过邮箱添加",
+    "friends.accept": "接受",
+    "friends.decline": "拒绝",
+    "friends.cancel": "取消",
+    "friends.remove": "删除",
+    "friends.challenge": "挑战",
+    "friends.waiting": "{name} — 等待中…",
+    "friends.err-email": "请输入邮箱",
+    "friends.err-self": "这是你自己",
+    "friends.err-exists": "你们已经是好友",
+    "friends.err-lookup": "查找失败",
+    "friends.challenging": "正在挑战 {name}…",
+    "friends.popup": "{name} 向你发起挑战！",
+    "friends.popup-hint": "在机器上刷卡后即可接受",
+    "friends.popup-accept": "接受",
+    "friends.popup-decline": "拒绝",
+    "friends.toast-new": "{name} 想加你为好友",
+    "friends.toast-sent": "好友请求已发送给 {name}",
+    "friends.toast-fail": "请求发送失败：{err}",
+    "friends.tap-to-play": "在机器上刷卡即可对战",
+    "friends.decline-title": "为什么拒绝？",
+    "friends.reason-not_at_machine": "我不在机器旁",
+    "friends.reason-busy": "我在忙",
+    "friends.reason-later": "改天吧",
+    "friends.reason-custom-ph": "自定义回复…",
+    "friends.send": "发送",
+    "friends.back": "返回",
+    "friends.notify-declined": "{name} 拒绝了：{reason}",
+    "friends.notify-declined-plain": "{name} 拒绝了你的挑战",
+    "friends.notify-timeout": "{name} 未回应 — 可能在忙",
+    "friends.cooldown": "{n} 秒后可再次挑战",
+    "friends.challenge-pending": "已发出挑战",
+    "friends.cooldown-btn": "{n} 秒后可挑战",
+    "friends.tap-to-play-short": "刷卡对战",
+
+    "replay.start": "起始局面",
+    "replay.prev": "‹ 上一步",
+    "replay.next": "下一步 ›",
+    "replay.play": "播放",
+    "replay.pause": "暂停",
+    "replay.close": "关闭",
+    "replay.title": "{a} vs {b} · {m} 分钟",
+    "replay.title-nc": "{a} vs {b}",
+
+    "lobby.welcome-default": "欢迎，挑战者。",
+    "spec.moves-so-far": "已下 {n} 步",
+    "spec.left": "{name} 离开了对局",
+  },
+};
+
+const LANG_KEY = "nxLang";
+let lang =
+  localStorage.getItem(LANG_KEY) ||
+  ((navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en");
+
+const listeners = [];
+
+export function getLang() {
+  return lang;
+}
+
+export function t(key, vars = {}) {
+  let s = DICTS[lang]?.[key] ?? DICTS.en[key] ?? key;
+  for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, v);
+  return s;
+}
+
+export function onLangChange(fn) {
+  listeners.push(fn);
+}
+
+export function setLang(next) {
+  lang = next === "zh" ? "zh" : "en";
+  localStorage.setItem(LANG_KEY, lang);
+  applyStaticTexts();
+  document.body?.classList.toggle("lang-zh", lang === "zh"); // CSS hooks (e.g. kiosk button order)
+  listeners.forEach((fn) => fn(lang));
+}
+
+export function toggleLang() {
+  setLang(lang === "zh" ? "en" : "zh");
+}
+
+// Static text: elements opt in with data-i18n="key" (textContent) and
+// data-i18n-ph="key" (placeholder).
+export function applyStaticTexts(root = document) {
+  root.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  root.querySelectorAll("[data-i18n-ph]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+}

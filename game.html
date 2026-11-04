@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Chess — Game Client</title>
+    <!-- fonts are vendored locally (assets/fonts.css) — no Google round-trip,
+         so the kiosk renders the same behind a firewall -->
+    <link rel="stylesheet" href="assets/fonts.css">
+    <link rel="stylesheet" href="face.css">
+    <link rel="stylesheet" href="game.css">
+</head>
+
+<body>
+    <!-- ==========================================================
+         TABLETOP: the physical hex board the whole UI sits on.
+         Purely decorative — no ids/handlers, nothing JS touches.
+         ========================================================== -->
+    <div class="board-bg" aria-hidden="true">
+        <div class="board-plane"></div>
+        <div class="board-vignette"></div>
+    </div>
+
+    <!-- base layer: robot face -->
+    <div class="base base-face" id="faceLayer">
+        <div class="stage state-idle" id="stage">
+            <div class="glow"></div>
+            <div class="face">
+                <!-- moulded-head dressing: never referenced by face.js -->
+                <div class="bot-antenna" aria-hidden="true"><i></i></div>
+                <div class="brow brow-l" aria-hidden="true"></div>
+                <div class="brow brow-r" aria-hidden="true"></div>
+                <div class="sweat" aria-hidden="true"></div>
+
+                <div class="eyes-row">
+                    <div class="eye">
+                        <div class="pupil"></div>
+                    </div>
+                    <div class="eye right">
+                        <div class="pupil"></div>
+                    </div>
+                </div>
+                <svg class="mouth" viewBox="0 0 100 40">
+                    <path id="m-flat" d="M15,20 L85,20" />
+                    <path id="m-smile" d="M12,12 Q50,42 88,12" />
+                    <path id="m-small" d="M22,16 Q50,30 78,16" />
+                    <path id="m-frown" d="M12,28 Q50,-2 88,28" />
+                    <path id="m-open" d="M32,20 a18,13 0 1,0 36,0 a18,13 0 1,0 -36,0" />
+                    <!-- worried squiggle: shown by CSS on your_turn, never by face.js -->
+                    <path id="m-worried" d="M18,22 q8,-11 16,0 q8,11 16,0 q8,-11 16,0 q8,11 16,0" />
+                </svg>
+            </div>
+            <div class="banner">
+                <div class="state-label" id="stateLabel">Idle</div>
+                <div class="message" id="message"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- base layer: remote video feed -->
+    <div class="base base-video hidden" id="videoLayer">
+        <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+
+    <!-- base layer: digital board for spectators -->
+    <div class="base base-board hidden" id="boardLayer">
+        <div id="specBoard"></div>
+    </div>
+
+    <!-- tabletop dressing: board frame + decorative pieces (purely visual) -->
+    <div class="tabletop-frame" aria-hidden="true"></div>
+
+    <div class="deco-layer" aria-hidden="true">
+        <!-- chunky toy chess pieces resting ON the board -->
+        <svg class="deco-piece pc-knight" viewBox="0 0 120 150">
+            <ellipse class="pc-cast" cx="60" cy="139" rx="42" ry="9" />
+            <ellipse class="pc-base-d" cx="60" cy="130" rx="40" ry="12" />
+            <path class="pc-body-d" d="M38,128 h44 l-4,-16 h-36 z" />
+            <ellipse class="pc-base" cx="60" cy="122" rx="40" ry="12" />
+            <path class="pc-body"
+                d="M42,118 q-2,-22 8,-34 q-12,-6 -6,-22 q4,-11 16,-18 q6,-4 6,-11 l8,8 q16,6 20,26 q4,22 -6,36 q-8,11 -6,15 z" />
+            <path class="pc-shade" d="M60,33 q16,6 20,26 q4,22 -6,36 q-8,11 -6,15 h-8 z" />
+            <circle class="pc-eye" cx="52" cy="48" r="4.5" />
+            <path class="pc-mane" d="M74,25 l12,10 l-10,4 z" />
+        </svg>
+
+        <svg class="deco-piece pc-rook" viewBox="0 0 120 150">
+            <ellipse class="pc-cast" cx="60" cy="139" rx="40" ry="9" />
+            <ellipse class="pc-base-d" cx="60" cy="130" rx="38" ry="11" />
+            <path class="pc-body-d" d="M40,128 h40 l-3,-15 h-34 z" />
+            <ellipse class="pc-base" cx="60" cy="122" rx="38" ry="11" />
+            <path class="pc-body" d="M44,118 q-3,-40 2,-58 h28 q5,18 2,58 z" />
+            <path class="pc-body" d="M38,62 h44 v-16 h-8 v7 h-9 v-7 h-10 v7 h-9 v-7 h-8 z" />
+            <path class="pc-shade" d="M60,46 h14 v7 h-9 v9 h17 v56 h-22 z" />
+        </svg>
+
+        <!-- loose hex chips scattered on the table edge -->
+        <div class="deco-chip chip-a"></div>
+        <div class="deco-chip chip-b"></div>
+        <div class="deco-chip chip-c"></div>
+    </div>
+
+    <!-- overlay layer: independent of base -->
+    <div class="overlay" id="overlay">
+        <div class="blocker hidden" id="blocker">
+            <div class="blocker-card">
+                <div class="blocker-title" id="blockerTitle" data-i18n="block.title">Illegal move</div>
+                <div class="blocker-reason" id="blockerReason"></div>
+                <div class="blocker-hint" data-i18n="block.hint">Fix the board — waiting for camera verification…</div>
+            </div>
+        </div>
+        <div class="conn-status bad" id="connStatus">
+            <span class="conn-dot"></span>
+            <span id="connText">offline</span>
+        </div>
+        <button class="leave-room hidden" id="btnLeave">Leave party</button>
+        <button class="leave-room guest-back hidden" id="btnGuestBack" type="button" data-i18n="kiosk.guest-back">← back</button>
+        <button class="board-toggle cam-toggle hidden" id="btnCamToggle" type="button"
+            aria-label="camera on/off">📷</button>
+        <button class="board-toggle hidden" id="btnBoardView" type="button" data-i18n="view.board">show board</button>
+        <button class="leave-room signout hidden" id="btnSignOut" data-i18n="btn.signout">Sign out</button>
+        <button class="leave-room friends-btn hidden" id="btnFriends" data-i18n="btn.friends">Friends</button>
+        <div class="clock opp hidden" id="clockThem">
+            <span class="clock-label" id="clockThemLabel">opp</span>
+            <span class="clock-time" id="clockThemTime">5:00</span>
+            <button class="add-friend hidden" id="btnAddOpponent" title="add opponent as friend"
+                type="button">+</button>
+        </div>
+        <div class="clock mine hidden" id="clockMe">
+            <span class="clock-label">you</span>
+            <span class="clock-time" id="clockMeTime">5:00</span>
+        </div>
+        <div class="turn-glow hidden" id="turnGlow"></div>
+        <div class="turn-chip hidden" id="turnChip"></div>
+        <div class="coinflip hidden" id="coinflip">
+            <div class="coin spinning" id="coin">🪙</div>
+            <div class="coinflip-text" id="coinflipText"></div>
+        </div>
+        <div class="gameover hidden" id="gameoverPanel">
+            <div class="gameover-result" id="gameoverResult"></div>
+            <div class="gameover-players">
+                <div class="gp-player">
+                    <span class="gp-badge hidden" id="gpMeBadge"></span>
+                    <span class="gp-icon">🧑</span>
+                    <span class="gp-name" data-i18n="go.you">you</span>
+                </div>
+                <div class="gp-vs" data-i18n="go.vs">vs</div>
+                <div class="gp-player">
+                    <span class="gp-badge hidden" id="gpThemBadge"></span>
+                    <span class="gp-icon" id="gpThemIcon">🧑</span>
+                    <span class="gp-name" id="gpThemName" data-i18n="go.opponent">opponent</span>
+                </div>
+            </div>
+            <div class="gameover-hint" id="gameoverHint">rematch?</div>
+            <div class="gameover-actions">
+                <button id="btnRematch" data-i18n="btn.rematch">Rematch</button>
+                <button id="btnGameoverLeave" data-i18n="btn.leave">Leave party</button>
+            </div>
+            <!-- station-kiosk end-of-game CTAs (spectator streams have no
+                 rematch; these replace the player actions in station POV) -->
+            <div class="gameover-actions hidden" id="specCta">
+                <button id="btnSpecAgain" data-i18n="go.play-again">Play again</button>
+                <button id="btnSpecLeave" data-i18n="go.leave">Leave</button>
+            </div>
+        </div>
+        <div class="emotion-layer" id="emotionLayer"></div>
+        <div class="lobby hidden" id="lobby">
+            <div class="wind w1"></div>
+            <div class="wind w2"></div>
+            <div class="wind w3"></div>
+            <div class="wind w4"></div>
+            <div class="lobby-inner">
+                <svg class="lobby-face" viewBox="0 0 200 232" role="img" aria-label="The robot king who hosts the game">
+                    <ellipse class="lk-cast" cx="100" cy="222" rx="62" ry="9" />
+
+                    <!-- king's cross finial and orb -->
+                    <rect class="lk-gold-d" x="94" y="16" width="12" height="32" rx="3" />
+                    <rect class="lk-gold-d" x="82" y="24" width="36" height="12" rx="3" />
+                    <rect class="lk-gold" x="94" y="13" width="12" height="32" rx="3" />
+                    <rect class="lk-gold" x="82" y="21" width="36" height="12" rx="3" />
+                    <circle class="lk-gold-d" cx="100" cy="58" r="12" />
+                    <circle class="lk-gold" cx="100" cy="55" r="12" />
+                    <circle class="lk-shine" cx="96" cy="51" r="4" />
+
+                    <!-- coronet -->
+                    <path class="lk-gold-d" d="M58,80 L58,60 L72,73 L86,53 L100,67 L114,53 L128,73 L142,60 L142,80 Z" />
+                    <path class="lk-gold" d="M58,77 L58,57 L72,70 L86,50 L100,64 L114,50 L128,70 L142,57 L142,77 Z" />
+                    <rect class="lk-gold-d" x="56" y="77" width="88" height="16" rx="5" />
+                    <rect class="lk-gold" x="56" y="73" width="88" height="16" rx="5" />
+                    <rect class="lk-shine" x="61" y="76" width="78" height="4" rx="2" />
+                    <circle class="lk-jewel" cx="86" cy="60" r="4" />
+                    <circle class="lk-jewel" cx="114" cy="60" r="4" />
+
+                    <!-- ear vents -->
+                    <rect class="lk-chassis-d" x="20" y="130" width="16" height="36" rx="8" />
+                    <rect class="lk-chassis-d" x="164" y="130" width="16" height="36" rx="8" />
+
+                    <!-- head chassis -->
+                    <rect class="lk-chassis-d" x="34" y="98" width="132" height="106" rx="30" />
+                    <rect class="lk-chassis" x="34" y="92" width="132" height="106" rx="30" />
+                    <path class="lk-chassis-hi"
+                        d="M64,92 h72 a30,30 0 0 1 30,30 v4 q-66,-22 -132,0 v-4 a30,30 0 0 1 30,-30 z" />
+
+                    <!-- screen -->
+                    <rect class="lk-bezel" x="50" y="106" width="100" height="78" rx="20" />
+                    <rect class="lk-screen" x="54" y="110" width="92" height="70" rx="17" />
+
+                    <g class="lf-eye">
+                        <circle class="lk-eye" cx="78" cy="136" r="15" />
+                        <circle class="lk-pupil" cx="78" cy="136" r="6" />
+                        <circle class="lk-shine" cx="73" cy="131" r="4" />
+                    </g>
+                    <g class="lf-eye lf-eye-r">
+                        <circle class="lk-eye" cx="122" cy="136" r="15" />
+                        <circle class="lk-pupil" cx="122" cy="136" r="6" />
+                        <circle class="lk-shine" cx="117" cy="131" r="4" />
+                    </g>
+                    <path class="lk-smile" d="M82,158 Q100,174 118,158" />
+
+                    <!-- collar flaring into a base, the way a king piece does -->
+                    <path class="lk-chassis-d" d="M74,196 h52 l14,16 h-80 z" />
+                    <ellipse class="lk-chassis-d" cx="100" cy="215" rx="50" ry="11" />
+                    <ellipse class="lk-chassis" cx="100" cy="211" rx="50" ry="11" />
+                    <ellipse class="lk-rim-hi" cx="100" cy="208" rx="34" ry="4" />
+                </svg>
+                <div class="lobby-welcome">Welcome, Challenger.</div>
+                <div class="lobby-status" id="lobbyStatus">connecting…</div>
+                <div class="mode-banner" id="modeBanner"></div>
+                <div class="lobby-stage" id="lobbyStage">
+                    <button class="carousel-arrow left" id="carLeft" aria-label="previous">‹</button>
+                    <button class="carousel-arrow right" id="carRight" aria-label="next">›</button>
+                    <div class="lobby-carousel" id="lobbyCarousel">
+                        <div class="lcard">
+                            <div class="lcard-title" data-i18n="card.bot.title">Challenge Bot</div>
+                            <svg class="lcard-bot" viewBox="0 0 100 100" aria-hidden="true">
+                                <ellipse cx="50" cy="92" rx="34" ry="6" fill="#3d2e1d" opacity=".28" />
+                                <rect x="47" y="10" width="6" height="12" rx="3" fill="#6f7982" />
+                                <circle cx="50" cy="9" r="6" fill="#cf7442" />
+                                <rect x="16" y="22" width="68" height="56" rx="18" fill="#a7b0b8" />
+                                <path d="M50,22 h16 a18,18 0 0 1 18,18 v20 a18,18 0 0 1 -18,18 h-16 z" fill="#000"
+                                    opacity=".13" />
+                                <rect x="24" y="32" width="52" height="30" rx="13" fill="#2b3a44" />
+                                <circle cx="39" cy="47" r="7.5" fill="#3fc6b2" />
+                                <circle cx="61" cy="47" r="7.5" fill="#3fc6b2" />
+                                <circle cx="37" cy="45" r="2.6" fill="#dffaf3" />
+                                <circle cx="59" cy="45" r="2.6" fill="#dffaf3" />
+                                <rect x="40" y="68" width="20" height="4" rx="2" fill="#6f7982" />
+                                <rect x="6" y="38" width="10" height="24" rx="5" fill="#8b959e" />
+                                <rect x="84" y="38" width="10" height="24" rx="5" fill="#8b959e" />
+                            </svg>
+                            <div class="lcard-sub diff-ui" data-i18n="card.bot.sub">Select difficulty</div>
+                            <div class="diff-pieces" id="diffPieces">
+                                <span></span><span></span><span></span><span></span><span></span>
+                            </div>
+                            <input type="range" id="diffSlider" min="1" max="5" value="2" step="1">
+                            <div class="diff-labels"><span data-i18n="diff.novice">Novice</span><span
+                                    data-i18n="diff.gm">Grandmaster</span></div>
+                            <button class="lbtn" id="btnSolo" data-i18n="card.bot.play">Play vs robot</button>
+                        </div>
+                        <div class="lcard lcard-center">
+                            <div class="lcard-title big" data-i18n="card.new.title">Start New Match</div>
+                            <div class="lcard-sub" data-i18n="card.new.sub">Configure your game</div>
+                            <div class="lcard-pieces" aria-hidden="true">
+                                <svg viewBox="0 0 120 150" class="deco-piece pc-knight">
+                                    <ellipse class="pc-cast" cx="60" cy="139" rx="42" ry="9" />
+                                    <ellipse class="pc-base-d" cx="60" cy="130" rx="40" ry="12" />
+                                    <path class="pc-body-d" d="M38,128 h44 l-4,-16 h-36 z" />
+                                    <ellipse class="pc-base" cx="60" cy="122" rx="40" ry="12" />
+                                    <path class="pc-body"
+                                        d="M42,118 q-2,-22 8,-34 q-12,-6 -6,-22 q4,-11 16,-18 q6,-4 6,-11 l8,8 q16,6 20,26 q4,22 -6,36 q-8,11 -6,15 z" />
+                                    <path class="pc-shade" d="M60,33 q16,6 20,26 q4,22 -6,36 q-8,11 -6,15 h-8 z" />
+                                    <circle class="pc-eye" cx="52" cy="48" r="4.5" />
+                                    <path class="pc-mane" d="M74,25 l12,10 l-10,4 z" />
+                                </svg>
+                                <svg viewBox="0 0 120 150" class="deco-piece pc-rook">
+                                    <ellipse class="pc-cast" cx="60" cy="139" rx="40" ry="9" />
+                                    <ellipse class="pc-base-d" cx="60" cy="130" rx="38" ry="11" />
+                                    <path class="pc-body-d" d="M40,128 h40 l-3,-15 h-34 z" />
+                                    <ellipse class="pc-base" cx="60" cy="122" rx="38" ry="11" />
+                                    <path class="pc-body" d="M44,118 q-3,-40 2,-58 h28 q5,18 2,58 z" />
+                                    <path class="pc-body" d="M38,62 h44 v-16 h-8 v7 h-9 v-7 h-10 v7 h-9 v-7 h-8 z" />
+                                    <path class="pc-shade" d="M60,46 h14 v7 h-9 v9 h17 v56 h-22 z" />
+                                </svg>
+                            </div>
+                            <!-- xiangqi swap-in: shown instead of the chess pieces in xiangqi theme -->
+                            <div class="lcard-pieces-xq" aria-hidden="true">
+                                <div class="xq-disc">車</div>
+                                <div class="xq-disc">炮</div>
+                            </div>
+                            <div class="timechips" id="timeChips">
+                                <button data-min="3" data-i18n="time.blitz">Blitz</button>
+                                <button data-min="10" class="sel" data-i18n="time.rapid">Rapid</button>
+                                <button data-min="30" data-i18n="time.classic">Classic</button>
+                            </div>
+                            <button class="lbtn primary" id="btnCreate" data-i18n="card.new.create">Create
+                                party</button>
+                            <button class="llink" id="btnQuick" data-i18n="card.new.quick">or quick match vs a
+                                stranger</button>
+                        </div>
+                        <div class="lcard">
+                            <svg class="lcard-icon" viewBox="0 0 100 100" aria-hidden="true">
+                                <ellipse cx="50" cy="92" rx="30" ry="5" fill="#3d2e1d" opacity=".28" />
+                                <path d="M50,6 L88,28 v44 L50,94 L12,72 V28 Z" fill="#24587f" />
+                                <path d="M50,6 L88,28 v44 L50,94 Z" fill="#000" opacity=".16" />
+                                <path d="M50,14 L81,32 v36 L50,86 L19,68 V32 Z" fill="#3f86b8" />
+                                <ellipse cx="50" cy="50" rx="31" ry="31" fill="none" stroke="#9fd2ec" stroke-width="4.5"
+                                    opacity=".85" />
+                                <ellipse cx="50" cy="50" rx="13" ry="31" fill="none" stroke="#9fd2ec" stroke-width="4.5"
+                                    opacity=".85" />
+                                <path d="M21,40 H79 M21,60 H79" stroke="#9fd2ec" stroke-width="4.5"
+                                    stroke-linecap="round" opacity=".85" />
+                            </svg>
+                            <div class="lcard-title" data-i18n="card.join.title">Join Lobby via Code</div>
+                            <input id="partyCode" maxlength="4" data-i18n-ph="card.join.ph"
+                                placeholder="ENTER CODE (e.g. A45F)" autocomplete="off" spellcheck="false">
+                            <button class="lbtn join" id="btnJoin" data-i18n="card.join.join">Join</button>
+                        </div>
+                        <!-- variant games: the ruleset id is carried to the station's
+                             engine (enforcement is the CV backend's job — see
+                             integration_map.md); ids here must match its registry -->
+                        <div class="lcard" id="variantCard">
+                            <div class="lcard-title" data-i18n="card.variant.title">Special Games</div>
+                            <div class="lcard-sub" data-i18n="card.variant.sub">wild rules — played on the machine</div>
+                            <div class="timechips variant-chips" id="variantChips">
+                                <button data-variant="blast3x3" class="sel" type="button"
+                                    data-i18n="variant.blast">Blast captures (3×3)</button>
+                                <button data-variant="freehorse" type="button" data-i18n="variant.freehorse">Free
+                                    horse</button>
+                                <button data-variant="flyinggeneral" type="button" data-i18n="variant.flying">Flying
+                                    general</button>
+                            </div>
+                            <button class="lbtn" id="btnVariantPlay" data-i18n="card.variant.play">Play variant</button>
+                        </div>
+                        <div class="lcard">
+                            <div class="lcard-title" data-i18n="card.profile.title">Profile</div>
+                            <div class="lcard-sub" id="profileCurrent" data-i18n="card.profile.none">no username yet
+                            </div>
+                            <input id="usernameInput" maxlength="16" data-i18n-ph="card.profile.ph"
+                                placeholder="choose a username" autocomplete="off" spellcheck="false">
+                            <button class="lbtn" id="btnSaveUsername" data-i18n="card.profile.save">Save
+                                username</button>
+                            <div class="profile-note" id="profileNote"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- spectator panel: replaces the carousel when not in play mode -->
+                <div class="watch-panel hidden" id="watchPanel">
+                    <div class="watch-section">
+                        <div class="watch-title">
+                            <span data-i18n="watch.live">Live games</span>
+                            <button class="llink" id="btnWatchRefresh" type="button"
+                                data-i18n="watch.refresh">refresh</button>
+                        </div>
+                        <div class="watch-list" id="liveList"></div>
+                    </div>
+                    <div class="watch-section">
+                        <div class="watch-title"><span data-i18n="watch.past">Past games</span></div>
+                        <div class="watch-list" id="pastList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="replay hidden" id="replayPanel">
+            <div class="replay-card">
+                <div class="replay-title" id="replayTitle">replay</div>
+                <div class="replay-board" id="replayBoard"></div>
+                <div class="replay-move" id="replayMove">start position</div>
+                <div class="replay-pos" id="replayPos"></div>
+                <div class="replay-controls">
+                    <button id="repPrev" type="button" data-i18n="replay.prev">‹ prev</button>
+                    <button id="repPlay" type="button" data-i18n="replay.play">play</button>
+                    <button id="repNext" type="button" data-i18n="replay.next">next ›</button>
+                </div>
+                <button class="llink" id="repClose" type="button" data-i18n="replay.close">close</button>
+            </div>
+        </div>
+        <!-- friends panel: social layer, available in both modes -->
+        <div class="replay hidden" id="friendsPanel">
+            <div class="replay-card friends-card">
+                <div class="replay-title" data-i18n="friends.title">Friends</div>
+                <div class="friends-add">
+                    <input type="email" id="friendEmail" data-i18n-ph="friends.ph" placeholder="friend's email"
+                        autocomplete="off" spellcheck="false">
+                    <button class="lbtn" id="btnAddFriend" type="button" data-i18n="friends.add">Add</button>
+                </div>
+                <div class="friends-error" id="friendsError"></div>
+                <div class="friends-section" id="friendRequestsSection">
+                    <div class="friends-section-title" data-i18n="friends.requests">requests</div>
+                    <div class="friends-list" id="friendRequests"></div>
+                </div>
+                <div class="friends-section">
+                    <div class="friends-section-title" data-i18n="friends.yours">your friends</div>
+                    <div class="friends-list" id="friendsList"></div>
+                </div>
+                <button class="llink" id="btnCloseFriends" type="button" data-i18n="replay.close">close</button>
+            </div>
+        </div>
+        <!-- incoming challenge popup -->
+        <div class="challenge-pop hidden" id="challengePop">
+            <div id="challengeMain">
+                <div class="challenge-text" id="challengeText">challenge!</div>
+                <div class="challenge-hint" id="challengeHint"></div>
+                <div class="challenge-actions">
+                    <button class="lbtn primary" id="btnAcceptChallenge" type="button"
+                        data-i18n="friends.popup-accept">Accept</button>
+                    <button class="lbtn" id="btnDeclineChallenge" type="button"
+                        data-i18n="friends.popup-decline">Decline</button>
+                </div>
+            </div>
+            <div id="challengeReasons" class="hidden">
+                <div class="challenge-text" data-i18n="friends.decline-title">why are you declining?</div>
+                <div class="challenge-reason-list">
+                    <button class="lbtn reason" data-reason="not_at_machine" type="button"
+                        data-i18n="friends.reason-not_at_machine">I'm not at my machine</button>
+                    <button class="lbtn reason" data-reason="busy" type="button" data-i18n="friends.reason-busy">I'm
+                        busy</button>
+                    <button class="lbtn reason" data-reason="later" type="button" data-i18n="friends.reason-later">maybe
+                        another time</button>
+                </div>
+                <div class="challenge-custom">
+                    <input id="declineCustom" type="text" data-i18n-ph="friends.reason-custom-ph"
+                        placeholder="custom reply…" autocomplete="off">
+                    <button class="lbtn" id="btnDeclineCustom" type="button" data-i18n="friends.send">Send</button>
+                </div>
+                <button class="llink" id="btnDeclineBack" type="button" data-i18n="friends.back">back</button>
+            </div>
+        </div>
+        <!-- side toast for incoming friend requests -->
+        <div class="friend-toast hidden" id="friendToast">
+            <span id="friendToastText"></span>
+        </div>
+        <!-- local video preview with Zoom-style hover controls (camera/mic) -->
+        <div class="pip-wrap hidden" id="pipWrap">
+            <video class="pip" id="localVideo" autoplay playsinline muted></video>
+            <div class="pip-controls">
+                <button class="pip-btn" id="btnPipCam" type="button" aria-label="camera">📷</button>
+                <button class="pip-btn" id="btnPipMic" type="button" aria-label="microphone">🎤</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- displaced-kiosk notice: another tab claimed this station. Lives outside
+         #overlay so it can sit above the attract screen (z-40); tapping it
+         reloads, which re-registers and takes the station back. -->
+    <div class="blocker kiosk-displaced hidden" id="kioskDisplaced">
+        <div class="blocker-card">
+            <div class="blocker-title" data-i18n="block.replaced">This station's screen opened in another tab</div>
+            <div class="blocker-reason" data-i18n="block.replaced-hint">This tab no longer receives taps. Tap here to take it back.</div>
+        </div>
+    </div>
+
+    <!-- auth layer: sign-in before the lobby; also the landing point for
+         tap links (game.html?token=...) while the token is exchanged -->
+    <div class="auth-screen hidden" id="authScreen">
+        <div class="auth-card">
+            <div class="auth-title" data-i18n="auth.title">Robot Chess</div>
+            <div class="auth-sub" id="authSub">sign in to watch — tap your card or phone at a machine to play</div>
+            <form id="authForm" novalidate>
+                <input type="email" id="authEmail" data-i18n-ph="auth.email" placeholder="email" required
+                    autocomplete="email">
+                <input type="password" id="authPass" data-i18n-ph="auth.password" placeholder="password" required
+                    autocomplete="current-password">
+                <div class="auth-error" id="authError"></div>
+                <button class="lbtn primary" id="authSubmit" type="submit" data-i18n="auth.signin">Sign in</button>
+            </form>
+            <button class="llink" id="authToggle" type="button" data-i18n="auth.to-create">new here? create an
+                account</button>
+        </div>
+    </div>
+
+    <!-- kiosk attract screen: full page over the tabletop (the board shows
+         through at the edges). Toy-flat design: navy outlines, chunky
+         shadows, the 楚河漢界 river banner. Same ids as before — no logic
+         changes. -->
+    <div class="auth-screen kiosk-attract hidden" id="kioskAttract">
+        <div class="attract-page">
+            <!-- the design's background: confetti + the actual toy board -->
+            <div class="attract-board" aria-hidden="true">
+                <svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                    <!-- confetti on the table — each piece bursts out of the
+                         center (the --fx/--fy vector runs from screen center
+                         to its home position) -->
+                    <g class="cf" style="--fx:916px;--fy:278px;--d:0s"><rect x="-7" y="-7" width="14" height="14" fill="#FF6FA8"
+                        transform="translate(44 262) rotate(45)" /></g>
+                    <g class="cf" style="--fx:810px;--fy:456px;--d:.05s"><rect x="-6" y="-6" width="12" height="12" fill="#FFC93C"
+                        transform="translate(150 84) rotate(45)" /></g>
+                    <g class="cf" style="--fx:921px;--fy:99px;--d:.1s"><rect x="30" y="432" width="18" height="18" fill="#8A5BE6" transform="rotate(20 39 441)" /></g>
+                    <g class="cf" style="--fx:800px;--fy:-70px;--d:.15s"><polygon points="160,610 176,640 144,640" fill="#FF8A2B" /></g>
+                    <g class="cf" style="--fx:938px;--fy:-266px;--d:.2s"><path d="M0 0 L10 -12 L20 0 L30 -12 L40 0 L50 -12 L60 0" fill="none" stroke="#FFC93C"
+                        stroke-width="6" stroke-linejoin="miter" transform="translate(22 806) rotate(-20)" /></g>
+                    <g class="cf" style="--fx:904px;--fy:-460px;--d:.25s"><rect x="-6" y="-6" width="12" height="12" fill="#FFFFFF"
+                        transform="translate(56 1000) rotate(45)" /></g>
+                    <g class="cf" style="--fx:-918px;--fy:272px;--d:.08s"><rect x="-7" y="-7" width="14" height="14" fill="#FFC93C"
+                        transform="translate(1878 268) rotate(45)" /></g>
+                    <g class="cf" style="--fx:-915px;--fy:111px;--d:.13s"><rect x="1866" y="420" width="18" height="18" fill="#E5463C" transform="rotate(-18 1875 429)" /></g>
+                    <g class="cf" style="--fx:-800px;--fy:-72px;--d:.18s"><polygon points="1760,612 1776,642 1744,642" fill="#8A5BE6" /></g>
+                    <g class="cf" style="--fx:-892px;--fy:-250px;--d:.23s"><path d="M0 0 L10 -12 L20 0 L30 -12 L40 0 L50 -12 L60 0" fill="none" stroke="#FF6FA8"
+                        stroke-width="6" stroke-linejoin="miter" transform="translate(1852 790) rotate(24)" /></g>
+                    <g class="cf" style="--fx:-924px;--fy:-470px;--d:.28s"><rect x="-6" y="-6" width="12" height="12" fill="#FFFFFF"
+                        transform="translate(1884 1010) rotate(45)" /></g>
+                    <g class="cf" style="--fx:-800px;--fy:500px;--d:.33s"><rect x="-5" y="-5" width="10" height="10" fill="#FFFFFF"
+                        transform="translate(1760 40) rotate(45)" /></g>
+                    <g class="cf" style="--fx:840px;--fy:-512px;--d:.36s"><rect x="-5" y="-5" width="10" height="10" fill="#FF6FA8"
+                        transform="translate(120 1052) rotate(45)" /></g>
+                    <g class="cf" style="--fx:60px;--fy:518px;--d:.4s"><polygon points="900,22 914,48 886,48" fill="#FFC93C" /></g>
+                    <g class="cf" style="--fx:-80px;--fy:-518px;--d:.44s"><rect x="-6" y="-6" width="12" height="12" fill="#FF8A2B"
+                        transform="translate(1040 1058) rotate(45)" /></g>
+                    <!-- the board: site-palette wood — sand surface, rim grid -->
+                    <rect x="180" y="66" width="1560" height="984" rx="26" fill="#3D2E1D" />
+                    <rect x="184" y="52" width="1552" height="976" rx="24" fill="#E3C791" stroke="#3D2E1D"
+                        stroke-width="8" />
+                    <rect x="208" y="76" width="1504" height="928" rx="12" fill="none" stroke="#C2A674"
+                        stroke-width="4" />
+                    <g fill="none" stroke="#A3703F" stroke-width="5" stroke-linecap="square">
+                        <path
+                            d="M260 130 H1660 M260 222 H1660 M260 314 H1660 M260 406 H1660 M260 498 H1660 M260 590 H1660 M260 682 H1660 M260 774 H1660 M260 866 H1660 M260 958 H1660" />
+                        <path d="M260 130 V958 M1660 130 V958" />
+                        <path
+                            d="M435 130 V498 M610 130 V498 M785 130 V498 M960 130 V498 M1135 130 V498 M1310 130 V498 M1485 130 V498" />
+                        <path
+                            d="M435 590 V958 M610 590 V958 M785 590 V958 M960 590 V958 M1135 590 V958 M1310 590 V958 M1485 590 V958" />
+                        <path d="M785 130 L1135 314 M1135 130 L785 314 M785 774 L1135 958 M1135 774 L785 958" />
+                    </g>
+                </svg>
+            </div>
+            <!-- the scattered wooden piece discs: over the board, under the words -->
+            <div class="attract-pieces" aria-hidden="true">
+                <div class="at-piece" style="left:4.8%;top:15.6%;--rot:-16deg">帅</div>
+                <div class="at-piece navy" style="left:7.7%;top:32.6%;--rot:14deg">马</div>
+                <div class="at-piece" style="left:4.4%;top:50%;--rot:-8deg">炮</div>
+                <div class="at-piece" style="left:7.3%;top:67%;--rot:18deg">车</div>
+                <div class="at-piece navy" style="left:5%;top:83.7%;--rot:-14deg">兵</div>
+                <div class="at-piece" style="left:95.4%;top:13.9%;--rot:14deg">将</div>
+                <div class="at-piece" style="left:92.6%;top:30.6%;--rot:-12deg">相</div>
+                <div class="at-piece" style="left:95.7%;top:48.1%;--rot:16deg">象</div>
+                <div class="at-piece" style="left:92.8%;top:65.4%;--rot:-10deg">炮</div>
+                <div class="at-piece" style="left:95.1%;top:82.6%;--rot:12deg">卒</div>
+                <div class="at-piece navy" style="left:17.2%;top:2.8%;--rot:-10deg">兵</div>
+                <div class="at-piece" style="left:81.3%;top:2.4%;--rot:12deg">士</div>
+                <div class="at-piece" style="left:29.2%;top:96%;--rot:8deg">马</div>
+                <div class="at-piece navy" style="left:71.9%;top:96%;--rot:-14deg">仕</div>
+                <div class="at-piece" style="left:18.3%;top:18.1%;--rot:-14deg">车</div>
+                <div class="at-piece" style="left:26%;top:29.8%;--rot:10deg">马</div>
+                <div class="at-piece navy" style="left:17.7%;top:37.4%;--rot:20deg">兵</div>
+                <div class="at-piece" style="left:85.2%;top:19.8%;--rot:12deg">炮</div>
+                <div class="at-piece" style="left:81.6%;top:35.6%;--rot:-16deg">卒</div>
+                <div class="at-piece navy" style="left:16.3%;top:86.7%;--rot:16deg">兵</div>
+                <div class="at-piece" style="left:83.8%;top:87%;--rot:-12deg">象</div>
+            </div>
+            <div class="attract-badge">
+                <span class="ab-zh">一起来下棋！</span>
+                <i class="ab-diamond"></i>
+                <span class="ab-en">welcome</span>
+            </div>
+            <h1 class="attract-wordmark" aria-label="Tap to play">
+                <svg viewBox="395 10 620 300" role="img" aria-hidden="true">
+                    <text x="415" y="288" font-size="250" font-weight="900"
+                        font-family="Noto Serif SC, Songti SC, SimSun, serif" fill="#3D2E1D" stroke="#3D2E1D"
+                        stroke-width="24">象</text>
+                    <text x="745" y="288" font-size="250" font-weight="900"
+                        font-family="Noto Serif SC, Songti SC, SimSun, serif" fill="#3D2E1D" stroke="#3D2E1D"
+                        stroke-width="24">棋</text>
+                    <text x="415" y="276" font-size="250" font-weight="900"
+                        font-family="Noto Serif SC, Songti SC, SimSun, serif" fill="#D4352B" stroke="#3D2E1D"
+                        stroke-width="20" paint-order="stroke">象</text>
+                    <text x="745" y="276" font-size="250" font-weight="900"
+                        font-family="Noto Serif SC, Songti SC, SimSun, serif" fill="#1F62E3" stroke="#3D2E1D"
+                        stroke-width="20" paint-order="stroke">棋</text>
+                </svg>
+            </h1>
+            <div class="attract-tiles" aria-hidden="true">
+                <span class="at-tile t-red">帅</span><span class="at-tile t-yellow">马</span><span
+                    class="at-tile t-green">炮</span><span class="at-tile t-blue">车</span><span
+                    class="at-tile t-purple">兵</span><span class="at-tile t-orange">相</span><span
+                    class="at-tile t-pink">仕</span>
+            </div>
+            <div class="attract-river">
+                <span class="ar-zh">楚河</span>
+                <span class="ar-sub" data-i18n="kiosk.mode-title">choose how to play</span>
+                <span class="ar-zh">漢界</span>
+            </div>
+            <!-- step 1: where to play -->
+            <div id="modeChoose" class="attract-modes">
+                <button class="toybtn tb-blue" id="btnModeScreen" type="button">
+                    <span class="tb-disc"></span>
+                    <span class="tb-text">
+                        <span class="tb-en">on this screen</span>
+                        <span class="tb-zh">屏幕对弈</span>
+                        <span class="tb-sub" data-i18n="kiosk.mode-screen-sub">tap your card or phone to start
+                            here</span>
+                    </span>
+                </button>
+                <button class="toybtn tb-red" id="btnModePhone" type="button">
+                    <span class="tb-disc"></span>
+                    <span class="tb-text">
+                        <span class="tb-en">on my phone</span>
+                        <span class="tb-zh">手机对弈</span>
+                        <span class="tb-sub" data-i18n="kiosk.mode-phone-sub">tap your phone to play there</span>
+                    </span>
+                </button>
+            </div>
+            <!-- step 2: card-or-phone (screen mode) then the tap hint -->
+            <div id="modeHint" class="attract-hint hidden">
+                <div class="auth-sub" id="tapKindQ" data-i18n="kiosk.tapkind">tap with a card or your phone?</div>
+                <div id="tapKind" class="attract-modes">
+                    <button class="toybtn tb-yellow" id="btnTapCard" type="button">
+                        <span class="tb-disc"></span>
+                        <span class="tb-text">
+                            <span class="tb-en">with a card</span>
+                            <span class="tb-zh">刷卡</span>
+                            <span class="tb-sub">tap your card to start</span>
+                        </span>
+                    </button>
+                    <button class="toybtn tb-blue" id="btnTapPhone" type="button">
+                        <span class="tb-disc"></span>
+                        <span class="tb-text">
+                            <span class="tb-en">with my phone</span>
+                            <span class="tb-zh">刷手机</span>
+                            <span class="tb-sub">tap your phone to start</span>
+                        </span>
+                    </button>
+                </div>
+                <div class="attract-hint-text hidden" id="kioskHint"></div>
+                <button class="attract-back" id="btnModeBack" type="button" data-i18n="kiosk.change-mode">←
+                    change</button>
+            </div>
+            <!-- tap sign-in in progress (?code in the URL): a calm waiting
+                 state replaces the selection UI so the steps never flash by.
+                 Purely CSS-driven by the .signing-in class on #kioskAttract. -->
+            <div class="attract-signin" id="kioskSigningIn">
+                <div class="as-big" data-i18n="kiosk.signing-in">signing you in…</div>
+            </div>
+            <button class="attract-pill" id="btnGuestPlay" type="button" data-i18n="kiosk.guest">or play as
+                guest</button>
+            <button class="attract-staff" id="btnStaffSignin" type="button" data-i18n="kiosk.staff">staff sign
+                in</button>
+        </div>
+    </div>
+
+    <!-- kiosk choice prompt: a phone tapped at this station — where should
+         the game open? (station_ask pushes this; the answer goes to
+         /session-choose) -->
+    <div class="auth-screen kiosk-ask hidden" id="kioskAsk">
+        <div class="auth-card attract-card">
+            <div class="auth-title" id="askTitle">Tap to play</div>
+            <div class="auth-sub" data-i18n="ask.sub">where do you want to play?</div>
+            <button class="lbtn primary attract-guest" id="btnAskScreen" type="button" data-i18n="ask.screen">on this
+                screen</button>
+            <button class="lbtn attract-guest" id="btnAskPhone" type="button" data-i18n="ask.phone">on my phone</button>
+        </div>
+    </div>
+
+    <!-- dev panel (face.js wires the D key and fills #devbuttons) -->
+    <button class="leave-room lang-btn" id="btnLang">中文 | EN</button>
+    <button class="leave-room sound-btn" id="btnSound" type="button" aria-label="sound on/off">🔊</button>
+    <div class="devpanel" id="devpanel">
+        <h4>Dev controls — press D to hide</h4>
+        <div id="devbuttons"></div>
+        <div class="dev-section" id="gamecontrols"></div>
+    </div>
+
+    <!-- TEMP: touchscreen dev toggle for keyboard-less stations.
+         Remove this button + .dev-toggle CSS before production. -->
+    <button id="devToggle" class="dev-toggle" type="button" aria-label="dev tools">🛠</button>
+
+    <script>
+      // Station screens (?station=ID): the attract screen IS the boot state —
+      // show it before first paint (and during tap sign-in) so the robot face
+      // never flashes through, and keep dev controls tucked away. Inline on
+      // purpose: module scripts run too late to beat the first paint.
+      // A ?code/?token in the URL means a tap sign-in is being redeemed —
+      // show the calm signing-in state instead of the selection steps.
+      {
+        const q = new URLSearchParams(location.search);
+        if (q.get("station")) {
+          document.body.classList.add("kiosk"); // CSS: no quick match on machines
+          const attract = document.getElementById("kioskAttract");
+          if (q.get("code") || q.get("token")) attract.classList.add("signing-in");
+          attract.classList.remove("hidden");
+          document.getElementById("devpanel").classList.add("hidden");
+          document.getElementById("devToggle").classList.add("hidden");
+        }
+      }
+    </script>
+
+    <script type="module" src="face.js"></script>
+    <script src="js/video.js"></script>
+    <script src="js/emotion.js"></script>
+    <script type="module" src="js/client.js"></script>
+</body>
+
+</html>

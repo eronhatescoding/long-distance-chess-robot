@@ -53,8 +53,9 @@ if (creds) {
 
 // Offline kiosk mode (the venue Raspberry Pi): no Firebase credentials — or
 // an explicit OFFLINE=1 — tells the client to skip sign-in entirely and offer
-// guest solo play only. In this mode the site makes zero external requests,
-// so a firewalled network changes nothing.
+// guest solo play only. The browser makes zero external requests in this mode,
+// so a firewalled network changes nothing. The server contacts only the
+// station engine, and only if the XQ_* vars configure one (see xqConfigured).
 // (.trim(): cmd's `set OFFLINE=1 && node ...` captures a trailing space)
 const OFFLINE = (process.env.OFFLINE || '').trim() === '1' || !creds;
 
@@ -110,7 +111,9 @@ const server = http.createServer((req, res) => {
     jsonResponse(res, 200, {
       gameServerUrl: process.env.GAME_SERVER_URL || null,
       offline: OFFLINE,
-      stationDevices: XQ_STATION_MAP,
+      // only advertise machines the watcher is actually driving; a kiosk with
+      // no engine configured stays on simulated solo play
+      stationDevices: xqConfigured() ? XQ_STATION_MAP : {},
     });
     return;
   }
@@ -1812,10 +1815,18 @@ function xqRecordUnseen(st, gameId, g) {
     .catch((err) => console.warn(`[xq] ${st.id}: record unseen failed: ${err.message}`));
 }
 
+// "Offline" means no Firebase (guest kiosk, no accounts) — it says nothing
+// about the engine. The venue Pi is offline in that sense yet still has to
+// command its own machine, so configuring the XQ_* vars is what enables the
+// watcher, in either mode.
+function xqConfigured() {
+  return !!(XQ_API_BASE && XQ_READER_KEY && XQ_READER_ID && xqStations.length > 0);
+}
+
 function startStationWatcher() {
   if (!XQ_API_BASE && xqStations.length === 0) return; // not configured at all
-  if (OFFLINE || !XQ_API_BASE || !XQ_READER_KEY || !XQ_READER_ID || xqStations.length === 0) {
-    console.warn('[xq] station watcher disabled — need XQ_API_BASE, XQ_READER_ID, XQ_READER_KEY, XQ_DEVICES (and not OFFLINE)');
+  if (!xqConfigured()) {
+    console.warn('[xq] station watcher disabled — need XQ_API_BASE, XQ_READER_ID, XQ_READER_KEY, XQ_DEVICES');
     return;
   }
   console.log(`[xq] station watcher: ${xqStations.map((s) => s.id).join(', ')} via ${XQ_API_BASE}, every ${XQ_POLL_MS}ms`);

@@ -272,7 +272,6 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   let myName = null;
   let myUid = null;
   let guestMode = false; // offline kiosk: no sign-in, solo vs robot only
-  let offlineMode = false; // server reported offline: no engine either — kiosk games stay simulated
   let friends = null; // initialized at boot, online mode only
 
   function applyModeGate() {
@@ -1284,7 +1283,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     // a machine screen starts the real game on its own machine (Phase 7) when
     // its station is mapped to an engine device; unmapped stations and
     // everywhere else stay simulated
-    if (stationKiosk && !offlineMode && stationDevices[stationKiosk]) {
+    if (stationKiosk && stationDevices[stationKiosk]) {
       if (send({ type: "start_station_game", gameType: devGameType, difficulty: Number(diffSlider.value) })) {
         showLobby("station.requesting");
       }
@@ -1345,7 +1344,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   loadVariants();
   document.getElementById("btnVariantPlay").onclick = () => {
     if (!requirePlay()) return;
-    if (stationKiosk && !offlineMode && stationDevices[stationKiosk]) {
+    if (stationKiosk && stationDevices[stationKiosk]) {
       if (send({ type: "start_station_game", gameType: devGameType, variant: selectedVariant })) {
         showLobby("station.requesting");
       }
@@ -2131,7 +2130,6 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     // in — the push IS the login. Connect immediately, signed-out.
     if (stationKiosk) connect();
     if (config.offline) {
-      offlineMode = true;
       enterGuestMode();
       return;
     }

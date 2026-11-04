@@ -439,6 +439,11 @@ credentials present.
 - `/config.json` reports `offline: true`; the client then skips the auth
   screen, never downloads the Firebase SDK, and shows a solo-only lobby
   ("Guest" vs the robot). Recordings are skipped (no Firestore).
+- Offline is about accounts, not the engine: with the `XQ_*` vars set (and
+  `XQ_STATION_MAP` for the kiosk), the station watcher runs and "Play vs
+  robot" starts a real machine game even in offline mode. Without them the
+  guest game stays simulated. `/config.json` lists `stationDevices` only
+  when the watcher is running.
 - Nothing is fetched from the internet in either mode: fonts
   (`assets/fonts/`) and chess.js (`js/vendor/`) are vendored, so the page
   works the same behind a firewall or with no uplink at all.

@@ -253,6 +253,8 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   let pendingGame = false; // created a party / queued for quick match, no opponent yet
   // a machine game the website asked for is being set up (boards checked); ends on spec_state or failure
   let stationSetup = false;
+  // the waiting party is a machine party: the server closes it after 10 min, so the idle lock may wait
+  let pendingPhysical = false;
   // server error details that have a translated message
   const SERVER_ERROR_KEYS = {
     "this machine is busy": "station.failed.busy",
@@ -511,7 +513,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       if (inRoom && turnState) { kioskLastActive = Date.now(); return; } // mid-game
       // waiting for a friend to join (the server closes the party after 10 min) or for the machines to
       // set up the boards: the player is waiting on purpose, not walking away
-      if (pendingGame || stationSetup) { kioskLastActive = Date.now(); return; }
+      if (stationSetup || (pendingGame && pendingPhysical)) { kioskLastActive = Date.now(); return; }
       // a live website-started machine game IS the player's activity — the
       // physical player never touches the screen; the game ends itself and
       // the lock resumes afterwards
@@ -543,6 +545,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   function resetRoomState() {
     inRoom = false;
     pendingGame = false;
+    pendingPhysical = false;
     stationSetup = false;
     roomCode = null;
     soloMode = false;
@@ -712,7 +715,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
 
     // nobody joined the machine party in time; the server already freed the machine
     party_expired() {
-      pendingGame = false;
+      resetRoomState(); // the server sends no 'lobby' after this, so the message stays up
       showLobby("lobby.party-expired");
       renderConn();
     },
@@ -720,6 +723,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     room_created(msg) {
       roomCode = msg.code;
       pendingGame = true; // seated and waiting — show a cancel path
+      pendingPhysical = !!msg.physical;
       friends?.onRoomCreated(msg.code); // delivers the code if a challenge is pending
       showLobby("lobby.party", { code: msg.code });
       renderConn();
@@ -933,6 +937,8 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       renderConn();
     },
     station_game_failed(msg) {
+      // "busy" while our own game is being set up answers a second press, not the game in progress
+      if (msg.reason === "busy" && stationSetup) return;
       stationSetup = false;
       renderConn();
       const known = ["busy", "unavailable", "timeout", "camera_not_ready", "failed", "aborted"];

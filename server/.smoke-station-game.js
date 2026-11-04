@@ -6,6 +6,7 @@
 //   SMOKE_VARIANT  variant to request (e.g. "fail-setup", "sync-error-demo")
 //   SMOKE_ABORT=1  send station_game_abort after the first move
 //   SMOKE_DOUBLE=1 send start_station_game twice (double-start guard)
+//   SMOKE_CANCEL=1 press Cancel as soon as the setup starts (the screen must hear station_game_failed)
 //   SMOKE_SESSION=1 link a tap session (a tapped kiosk), as a real signed-in player has
 //   SMOKE_MS       total run time (default 15000)
 'use strict';
@@ -46,6 +47,10 @@ ws.onmessage = (e) => {
   if (m.type === 'games' || m.type === 'welcome') return;
   seen.push(m.type);
   console.log('[harness]', m.type, JSON.stringify(m).slice(0, 160));
+  if (m.type === 'station_game_requested' && process.env.SMOKE_CANCEL === '1' && !abortSent) {
+    abortSent = true;
+    setTimeout(() => { console.log('[harness] -> station_game_abort (cancel during setup)'); ws.send(JSON.stringify({ type: 'station_game_abort' })); }, 300);
+  }
   if (m.type === 'move_applied' && process.env.SMOKE_ABORT === '1' && !abortSent) {
     abortSent = true;
     console.log('[harness] -> station_game_abort');

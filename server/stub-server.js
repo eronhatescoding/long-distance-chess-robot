@@ -1385,6 +1385,7 @@ async function xqCreateWithCleanup(st, gameId) {
 
 async function xqRequestStationGame(socket, msg) {
   const stationId = socket.kioskStation;
+  socket.noAutoWatch = false; // asking for a game means following it, whatever was left earlier
   const st = xqStationByDevice(XQ_STATION_MAP[stationId]);
   if (!st || !xqWriteEnabled) {
     return send(socket, { type: 'station_game_failed', reason: 'unavailable' });
@@ -1470,6 +1471,7 @@ function xqPartyNotify(room, msg) {
 }
 
 function xqCreateParty(socket, st) {
+  socket.noAutoWatch = false; // asking for a game means following it
   if (!xqRoomsEnabled) return send(socket, { type: 'error', detail: 'physical games are not available right now' });
   if (!socket.playerUid) return send(socket, { type: 'error', detail: 'sign in with your card to play with others' });
   if (st.requested || st.room || st.partyRoom) return send(socket, { type: 'error', detail: 'this machine is busy' });
@@ -1484,7 +1486,7 @@ function xqCreateParty(socket, st) {
   room.partyTimer = setTimeout(() => xqExpireParty(room), PARTY_WAIT_MS);
   room.partyTimer.unref();
   console.log(`[party] ${room.code} created at ${st.id} (waits ${Math.round(PARTY_WAIT_MS / 1000)}s for a joiner)`);
-  send(socket, { type: 'room_created', code: room.code });
+  send(socket, { type: 'room_created', code: room.code, physical: true, expiresInMs: PARTY_WAIT_MS });
 }
 
 function xqExpireParty(room) {
@@ -1493,8 +1495,7 @@ function xqExpireParty(room) {
   console.log(`[party] ${room.code} expired with no joiner`);
   if (host && !host.destroyed) {
     unseatPlayer(host); // frees the room, the machine and (via the empty-room path) the timer
-    send(host, { type: 'party_expired' });
-    send(host, { type: 'lobby' });
+    send(host, { type: 'party_expired' }); // no 'lobby' after it: that would overwrite the message
   } else {
     rooms.delete(room.code);
     xqPartyDone(room);
@@ -1515,6 +1516,8 @@ async function xqJoinParty(socket, room) {
   if (!host || host.destroyed || !hostSt) return fail('no such room');
   removeFromQueue(socket);
   clearTimeout(room.partyTimer);
+  socket.noAutoWatch = false;
+  host.noAutoWatch = false;
 
   // random sides: the host is red half the time
   const hostIsRed = crypto.randomInt(2) === 0;
@@ -1566,9 +1569,7 @@ async function xqJoinParty(socket, room) {
   room.setupTimer = setTimeout(() => {
     if (room.started || rooms.get(room.code) !== room) return;
     console.warn(`[party] ${room.code}: stations never started the game — timing out`);
-    xqPost(`/api/xiangqi/games/${encodeURIComponent(room.xqGameId)}/abort`, { event_id: crypto.randomUUID() })
-      .catch((err) => console.warn(`[party] ${room.code}: timeout abort failed: ${err.message}`));
-    xqFailParty(room, 'timeout');
+    xqFailParty(room, 'timeout'); // also aborts it on the engine
   }, XQ_SETUP_TIMEOUT_MS);
   room.setupTimer.unref();
 }
@@ -1578,6 +1579,12 @@ function xqFailParty(room, reason) {
   if (room.failed) return;
   room.failed = true;
   xqPartyNotify(room, { type: 'station_game_failed', reason });
+  if (room.xqGameId && reason !== 'busy') {
+    // the create call may have succeeded even if we saw an error (a timeout): end it, or the next poll
+    // re-adopts it as ours and starts a game nobody is waiting for. Aborting an absent room is a harmless 404.
+    xqPost(`/api/xiangqi/games/${encodeURIComponent(room.xqGameId)}/abort`, { event_id: crypto.randomUUID() })
+      .catch((err) => { if (err.status !== 404) console.warn(`[party] ${room.code}: abort failed: ${err.message}`); });
+  }
   if (rooms.get(room.code) === room) rooms.delete(room.code);
   for (const peer of room.callPeers || []) if (peer.room === room) { peer.room = null; peer.playerLetter = null; }
   const host = room.players.A;
@@ -1681,7 +1688,9 @@ function xqApplyRequested(st, g) {
   }
   if (g.phase === 'aborted' || (g.phase === 'finished' &&
       (g.result_reason === 'website_abort' || g.result_reason === 'operator_restart'))) {
-    // aborted by us (player left) or by the operator — either way, no result
+    // aborted by us (player left) or by the operator — either way, no result. The screen that asked is
+    // still on "setting up" (it only watches a game once it is live), so tell it directly.
+    if (req.socket && !req.socket.destroyed) send(req.socket, { type: 'station_game_failed', reason: 'aborted' });
     st.room = room;
     st.gameId = g.id;
     xqGames.set(g.id, room);
@@ -1841,11 +1850,16 @@ function xqApplyState(st, g) {
   // Only PLAYING games are watchdog-eligible: a waiting_partner room is
   // supposed to sit still (nobody is moving pieces yet).
   const staleMs = st.online === false ? XQ_OFFLINE_STALE_MS : XQ_STALE_MS;
-  if (g.phase === 'playing' && g.updatedAt && Date.now() - Number(g.updatedAt) > staleMs) {
+  const watchdogApplies = !room.createdByUs || st.online === false;
+  if (watchdogApplies && g.phase === 'playing' && g.updatedAt && Date.now() - Number(g.updatedAt) > staleMs) {
     // remember the dead game so we don't resurrect it on the next poll (his
     // device endpoint only stops reporting it when a game is FINISHED)
     // (on every station: the other station of a shared PvP game must not re-adopt it either)
-    for (const other of xqStations) other.abandonedGames.set(st.gameId, g.updatedAt ?? null);
+    for (const other of xqStations) {
+      other.abandonedGames.set(st.gameId, g.updatedAt ?? null);
+      // the other machine of a shared game stops at the abandoned check and would keep pointing here
+      if (other !== st && other.room === room) { other.room = null; other.gameId = null; }
+    }
     console.log(`[xq] ${st.id}: game ${st.gameId} stale for >${Math.round(staleMs / 1000)}s — abandoning`);
     if (room.createdByUs && String(st.gameId).startsWith('web-')) {
       // ours: end it on the engine too, or both machines stay claimed by a dead game and every new
@@ -1936,7 +1950,7 @@ function xqFinishRoom(st, g, status) {
   console.log(`[xq] ${st.id}: game ${st.gameId} ${status} (winner ${winner || '—'})`);
   if (room.physical) {
     // aborted before play began: both screens are still on "setting up" and need to hear it
-    if (status !== 'over' && !room.started && !room.failed) xqPartyNotify(room, { type: 'station_game_failed', reason: 'aborted' });
+    if (!room.started && !room.failed) xqPartyNotify(room, { type: 'station_game_failed', reason: 'aborted' });
     xqPartyDone(room);
   }
   xqGames.delete(st.gameId);
@@ -2575,6 +2589,9 @@ function handleClientMessage(socket, text) {
       if (!room) return send(socket, { type: 'error', detail: 'no such room' });
       if (room.solo) return send(socket, { type: 'error', detail: 'cannot join a solo game' });
       if (room.physical) return xqJoinParty(socket, room);
+      if (room.gameType === 'xiangqi' && xqPartyStation(socket, 'xiangqi')) {
+        return send(socket, { type: 'error', detail: 'join from a machine to play a physical game' });
+      }
       const letter = room.players.A ? (room.players.B ? null : 'B') : 'A';
       if (!letter) return send(socket, { type: 'error', detail: 'room full' });
       removeFromQueue(socket);
@@ -2586,6 +2603,9 @@ function handleClientMessage(socket, text) {
       // also the cancel path for queued quick-match and waiting party hosts
       removeFromQueue(socket);
       if (!socket.room) {
+        // a party that was paired a moment ago: this player's screen is no longer seated, but leaving
+        // must still end the game on both machines
+        if (socket.callRoom && socket.kioskStation) xqAbortStationGame(socket.kioskStation, 'player_left');
         send(socket, { type: 'lobby' });
         return;
       }

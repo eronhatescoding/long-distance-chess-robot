@@ -73,7 +73,6 @@ async function main() {
 
   if (MODE === 'expire') {
     await host.wait('party_expired', 8000);
-    await host.wait('lobby', 3000);
     guest.send({ type: 'join_room', code: created.code });
     const err = await guest.wait('error', 3000);
     check(/no such room/.test(err.detail), 'expired code is gone');

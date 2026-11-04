@@ -1389,6 +1389,10 @@ async function xqRequestStationGame(socket, msg) {
   if (!st || !xqWriteEnabled) {
     return send(socket, { type: 'station_game_failed', reason: 'unavailable' });
   }
+  if (st.requested && st.requested.socket === socket) {
+    // the same screen pressed Play again while its own game sets up: not "busy", just still coming
+    return send(socket, { type: 'station_game_requested' });
+  }
   if (st.requested || st.room || st.partyRoom) {
     // a website game pending/live, or an operator game we adopted — the
     // machine can only play one game at a time
@@ -1842,7 +1846,7 @@ function xqApplyState(st, g) {
     // device endpoint only stops reporting it when a game is FINISHED)
     // (on every station: the other station of a shared PvP game must not re-adopt it either)
     for (const other of xqStations) other.abandonedGames.set(st.gameId, g.updatedAt ?? null);
-    console.log(`[xq] ${st.id}: game ${st.gameId} stale for >${Math.round(staleMs / 60000)}min — abandoning`);
+    console.log(`[xq] ${st.id}: game ${st.gameId} stale for >${Math.round(staleMs / 1000)}s — abandoning`);
     if (room.createdByUs && String(st.gameId).startsWith('web-')) {
       // ours: end it on the engine too, or both machines stay claimed by a dead game and every new
       // website game is refused as busy. Operator games are never ended by us.
@@ -1872,6 +1876,10 @@ function xqApplyState(st, g) {
     room.moves = moves;
     return;
   }
+  // One poll can carry both new moves and a pause change. A pause that CLEARED happened before
+  // those moves (play resumed), so clear the overlay first; a NEW pause came after them, so it goes last.
+  const pausedNow = !!(g.sync_error || g.error || g.paused);
+  if (!pausedNow) xqSyncError(room, g);
   for (let i = room.moves.length; i < moves.length; i++) {
     const m = moves[i];
     room.turn = m.by === 'A' ? 'B' : 'A';
@@ -1880,7 +1888,7 @@ function xqApplyState(st, g) {
     specSend(room, { type: 'turn', player: room.turn });
     recordMove(room, m.move, m.by, m.captured);
   }
-  xqSyncError(room, g);
+  if (pausedNow) xqSyncError(room, g);
   xqRejectedMove(room, g);
   // aborts (ours or the operator's) land as finished + a reason — no winner
   const aborted =

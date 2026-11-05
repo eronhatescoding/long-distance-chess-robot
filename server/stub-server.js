@@ -1719,7 +1719,14 @@ function xqApplyRequested(st, g) {
     st.expectedGameId = null;
     return xqFinishRoom(st, {}, 'aborted');
   }
-  if (g.phase === 'setup' || g.phase === 'setting_up') return; // engine is preparing the board
+  if (g.phase === 'setup' || g.phase === 'setting_up') {
+    // engine is preparing the board. The asking screen is not watching yet, so a board the camera
+    // rejects (wrong start, or no stable complete view) goes straight to it, and so does the fix.
+    xqSetupProblem(req, g, (msg) => {
+      if (req.socket && !req.socket.destroyed) send(req.socket, msg);
+    });
+    return;
+  }
   // playing (or already finished): attach and hand to the normal flow
   st.requested = null;
   st.expectedGameId = null;
@@ -1736,6 +1743,17 @@ function xqApplyRequested(st, g) {
   broadcastLobbyGames();
   kioskAutoWatch(room);
   if (g.phase === 'finished') xqFinishRoom(st, g, 'over');
+}
+
+// Board trouble during setup (reader-2: phase setup + paused/error — the station's camera saw a
+// wrong starting position, or no complete stable board). `holder` remembers the last detail so a
+// screen hears each new problem once and station_setup_ok once when it clears. The detail is the
+// station's own text (Chinese, physical square names); we pass it through untouched.
+function xqSetupProblem(holder, g, notify) {
+  const detail = g.paused || g.error ? String(g.error || 'board not ready') : null;
+  if (detail && detail !== holder.setupProblem) notify({ type: 'station_setup_problem', detail });
+  else if (!detail && holder.setupProblem) notify({ type: 'station_setup_ok' });
+  holder.setupProblem = detail;
 }
 
 // Surface camera trouble to everyone watching (and clear it when it clears).
@@ -1891,6 +1909,9 @@ function xqApplyState(st, g) {
     xqFinishRoom(st, {}, 'abandoned');
     return;
   }
+  // (No setup-problem relay for two-machine party rooms: the engine's paired-room view never reads
+  // paused/error during setup and paired stations do not report setup attention, so there is
+  // nothing to relay. Only single-machine website games get station_setup_problem.)
   // a waiting PvP room whose opponent just joined becomes a live game
   if (!room.started && g.phase === 'playing') {
     xqApplyPvpStations(room, g); // the second station appears only now

@@ -255,9 +255,9 @@ simulated solo game; unmapped stations keep the simulated game.
   - `POST /api/xiangqi/games/{id}/resign` with `{ event_id }` — only on the
     player's turn (409 otherwise); our End-game button tries resign first and
     falls back to abort.
-  - Phases are only `playing` and `finished`: a just-created game reads
-    playing with no moves until the camera verifies the board (we show
-    "waiting for the machine to set up the board" in that window), and an
+  - A just-created game reads `setup` (older engines: playing with no moves)
+    until the camera verifies the board (we show "waiting for the machine to
+    set up the board" in that window), then `playing`, and an
     abort lands as finished + winner null + `website_abort`
     (`operator_restart` when the operator ends it). Board trouble is
     `paused: true` + `error: "<text>"` — the only fix-the-board signals.
@@ -267,8 +267,26 @@ simulated solo game; unmapped stations keep the simulated game.
 - Server → kiosk: `station_game_requested` (setting up…), then the normal
   auto-watch stream; `station_game_failed { reason }` on failure (busy /
   unavailable / timeout / camera_not_ready).
-- Guards: one website game per station (double-press returns "busy"), a 45 s
-  setup timeout (`XQ_SETUP_TIMEOUT_MS`), taps rejected while a website game
+- Setup board problems: while the game reads phase `setup` with
+  `paused: true` and/or `error: "<text>"` (the station's camera saw a wrong
+  starting position, or no complete stable board for 5 s), the asking kiosk
+  gets `station_setup_problem { detail }` — `detail` is the station's own
+  Chinese text, passed through untouched (physical A–J/1–9 squares; a piece
+  the camera did not see is "未看到", never "empty"). It is sent once per new
+  detail; `station_setup_ok` follows once when paused/error clear. The kiosk
+  shows "board not ready: <detail>" / "棋盘未就绪：<detail>" on its
+  setting-up status and goes back to "setting up" on ok; going live or
+  failing replaces it. Only single-machine website games report setup
+  problems: two-machine party rooms do not yet (paired stations drop the
+  setup attention, and the engine's paired-room view reads `paused` only in
+  its `paused` phase, which shows as `playing`, never during `setup`), so
+  party kiosks just stay on "setting up". The setup timeout keeps running
+  during a problem. Test:
+  `MOCK_AUTO=0 MOCK_VARIANT=setup-problem-demo MOCK_SETUP_MS=8000 node
+  server/.mock-xiangqi.js`, then `SMOKE_EXPECT=station_game_requested,station_setup_problem,station_setup_ok,spec_state
+  node server/.smoke-station-game.js` (exit 1 if the order is not seen).
+- Guards: one website game per station (double-press returns "busy"), the
+  8-minute setup timeout above, taps rejected while a website game
   is pending/live, operator-started games are adopted but never aborted, and
   ending the kiosk session aborts the machine game with it.
 - The website is the only thing that starts a kiosk's game: a kiosk screen

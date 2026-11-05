@@ -976,6 +976,17 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
       showLobby("station.setting-up");
       renderConn();
     },
+    // The station's camera rejects the starting board (wrong pieces, or no complete stable view): show
+    // its own words on the "setting up" status until the board is fixed. The detail already names
+    // physical squares and says what was not seen; we never reword it.
+    station_setup_problem(msg) {
+      if (!stationSetup) return;
+      showLobby("station.setup-problem", { detail: msg.detail || "" });
+    },
+    station_setup_ok() {
+      if (!stationSetup) return;
+      showLobby("station.setting-up");
+    },
     station_game_failed(msg) {
       // "busy" while our own game is being set up answers a second press, not the game in progress
       if (msg.reason === "busy" && stationSetup) return;
@@ -1895,7 +1906,12 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     games(msg) { renderLiveList(msg.games); },
     past_games(msg) { renderPastList(msg.games); },
     game(msg) { openReplay(msg); },
-    spec_state(msg) { stationSetup = false; enterSpectator(msg); },
+    spec_state(msg) {
+      stationSetup = false;
+      // live now: a setup problem still on the lobby status must not come back with the lobby
+      if (lobbyStatusMsg.key === "station.setup-problem") lobbyStatusMsg = { key: "station.setting-up" };
+      enterSpectator(msg);
+    },
   });
 
   /* ---------- go ---------- */

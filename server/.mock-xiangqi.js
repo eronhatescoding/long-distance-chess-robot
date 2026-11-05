@@ -18,7 +18,8 @@
 //
 // setup -(SETUP_MS)-> playing -> finished. Magic variants: "fail-setup"
 // (camera_not_ready), "sync-error-demo", "reject-demo", "pause-demo",
-// "slow-abort".
+// "slow-abort", "setup-problem-demo" (the first half of setup reads
+// paused + a Chinese board error, the second half clears before playing).
 // MOCK_PVP=1: a PvP room appears on pi-board-01 + mac-board-01 — phase
 // waiting_partner (one station) for 3s, then playing with both stations;
 // moves key on side; winner red.
@@ -71,6 +72,12 @@ function gameJson(g) {
   let rejectedMove = null;
   let paused = false;
   let error = null;
+  // setup-problem-demo: the station's camera rejects the starting board for the
+  // first half of setup (as the real station does after 5 s), then it is fixed
+  if (phase === 'setup' && g.variant === 'setup-problem-demo' && Date.now() - g.createdAt < SETUP_MS / 2) {
+    paused = true;
+    error = '开局与要求的起点不一致：G9 应为红兵（相机未看到）；F9 多出红兵。请摆好后移开手。';
+  }
   if (phase === 'playing' || phase === 'finished') {
     moves = SCRIPT.slice(0, Math.min(g.fetches, SCRIPT.length));
     // reject-demo: after 2 confirmed moves, a wrong placement is rejected;

@@ -9,6 +9,11 @@
 //   SMOKE_CANCEL=1 press Cancel as soon as the setup starts (the screen must hear station_game_failed)
 //   SMOKE_SESSION=1 link a tap session (a tapped kiosk), as a real signed-in player has
 //   SMOKE_MS       total run time (default 15000)
+//   SMOKE_EXPECT   comma-separated event types that must appear in this order
+//                  (e.g. "station_setup_problem,station_setup_ok,spec_state");
+//                  exit code 1 if they do not
+// Setup-problem check (mock MOCK_VARIANT=setup-problem-demo MOCK_SETUP_MS=8000):
+//   SMOKE_EXPECT=station_game_requested,station_setup_problem,station_setup_ok,spec_state
 'use strict';
 
 const PORT = Number(process.env.SMOKE_PORT) || 8081;
@@ -63,5 +68,15 @@ ws.onerror = () => console.log('[harness] socket error');
 
 setTimeout(() => {
   console.log('[harness] event sequence:', seen.join(' -> ') || '(nothing)');
+  const expect = (process.env.SMOKE_EXPECT || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (expect.length) {
+    let i = 0;
+    for (const type of seen) if (type === expect[i]) i++;
+    if (i < expect.length) {
+      console.log(`[harness] FAIL: expected ${expect.join(' -> ')}; missing from "${expect[i]}" on`);
+      process.exit(1);
+    }
+    console.log(`[harness] PASS: saw ${expect.join(' -> ')} in order`);
+  }
   process.exit(0);
 }, MS);

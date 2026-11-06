@@ -18,7 +18,8 @@
 //
 // setup -(SETUP_MS)-> playing -> finished. Magic variants: "fail-setup"
 // (camera_not_ready), "sync-error-demo", "reject-demo", "pause-demo",
-// "slow-abort", "setup-problem-demo" (the first half of setup reads
+// "slow-abort", "operator-restart" (ends after 2 moves with result_reason
+// operator_restart, as a station `restart` does), "setup-problem-demo" (the first half of setup reads
 // paused + a Chinese board error, the second half clears before playing).
 // MOCK_PVP=1: a PvP room appears on pi-board-01 + mac-board-01 — phase
 // waiting_partner (one station) for 3s, then playing with both stations;
@@ -61,6 +62,7 @@ function autoGameId() {
 
 function gamePhase(g, now = Date.now()) {
   if (g.abortAt && now >= g.abortAt) return 'finished'; // website_abort
+  if (g.restarted) return 'finished'; // operator-restart: ended at the station, not by the website
   if (g.failSetup && now - g.createdAt >= SETUP_MS) return 'failed';
   if (now - g.createdAt < SETUP_MS) return 'setup';
   return g.finished ? 'finished' : 'playing';
@@ -92,7 +94,13 @@ function gameJson(g) {
       paused = true;
       error = 'board mismatch — fix the board';
     }
-    if (!rejectedMove && !paused) {
+    // operator-restart: after 2 moves the operator types `restart` at the station — the game ends with
+    // no winner and the website never asked for it
+    if (g.variant === 'operator-restart' && moves.length >= 2) {
+      g.restarted = true;
+      phase = 'finished';
+    }
+    if (!rejectedMove && !paused && !g.restarted) {
       g.fetches++;
       if (g.fetches > SCRIPT.length) g.finished = true;
       phase = gamePhase(g); // finishing move may have just landed
@@ -108,8 +116,9 @@ function gameJson(g) {
     id: g.id,
     mode: g.mode,
     phase,
-    winner: phase === 'finished' && !g.abortAt ? 'human' : null,
-    result_reason: phase === 'finished' ? (g.abortAt ? 'website_abort' : 'checkmate') : null,
+    winner: phase === 'finished' && !g.abortAt && !g.restarted ? 'human' : null,
+    result_reason: phase === 'finished'
+      ? (g.abortAt ? 'website_abort' : g.restarted ? 'operator_restart' : 'checkmate') : null,
     failure_reason: phase === 'failed' ? 'camera_not_ready' : null,
     human_side: g.humanSide,
     variant: g.variant,

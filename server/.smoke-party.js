@@ -9,6 +9,7 @@
 //   abort-setup-late  the same, 1.5 s after pairing (engine room exists); then a new party must work
 //   call-reconnect  after pairing the guest's screen reloads: the host hears call_peer_left, both get a
 //             fresh call_peer, and signals reach the NEW screen
+//   setup-problem  (engine: website_engine_sim --wrong-opening a) both screens see the wrong opening, then it clears
 //   leave-running  start a game, see a move, then quit WITHOUT ending it (then restart this server and run:)
 //   recover   after a server restart the running web- game is ours again: both kiosks follow it, ending it works,
 //             and the machines are free afterwards
@@ -153,6 +154,17 @@ async function main() {
   check(hs.code === gs.code && hs.createdByUs && gs.createdByUs, 'both tapped kiosks follow the same website-started game');
   check(hs.names.A === (hs.stationSides[DEVICE_OF[2]] === 'red' ? 'Alice' : 'Bob'), `names follow the random sides (${JSON.stringify(hs.names)})`);
   check(hs.stationSides[DEVICE_OF[2]] !== hs.stationSides[DEVICE_OF[3]], 'machines got opposite sides');
+
+  if (MODE === 'setup-problem') {
+    // robots_arm website_engine_sim --wrong-opening a: one machine's opening is missing a piece for 20 s
+    const [he, ge] = await Promise.all([host.wait('sync_error', 40000), guest.wait('sync_error', 40000)]);
+    check(he.detail === ge.detail && /方棋盘：/.test(he.detail), `both screens see whose opening is wrong (${he.detail.slice(0, 60)})`);
+    await Promise.all([host.wait('sync_ok', 60000), guest.wait('sync_ok', 60000)]);
+    check(true, 'the problem clears on both screens once the board is fixed');
+    guest.send({ type: 'station_game_abort' });
+    await Promise.all([host.wait('game_over', 30000), guest.wait('game_over', 30000)]);
+    return;
+  }
 
   if (MODE === 'leave-running') {
     await host.wait('move_applied', 90000);

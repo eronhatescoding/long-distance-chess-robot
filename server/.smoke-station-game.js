@@ -8,6 +8,8 @@
 //   SMOKE_DOUBLE=1 send start_station_game twice (double-start guard)
 //   SMOKE_CANCEL=1 press Cancel as soon as the setup starts (the screen must hear station_game_failed)
 //   SMOKE_SESSION=1 link a tap session (a tapped kiosk), as a real signed-in player has
+//   SMOKE_AGAIN=1  when the game's stream ends (spec_end), start another game: the kiosk must not be
+//                  refused as "already in a room" (expect station_game_requested twice)
 //   SMOKE_MS       total run time (default 15000)
 //   SMOKE_EXPECT   comma-separated event types that must appear in this order
 //                  (e.g. "station_setup_problem,station_setup_ok,spec_state");
@@ -23,6 +25,7 @@ const MS = Number(process.env.SMOKE_MS) || 15000;
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
 const seen = [];
 let abortSent = false;
+let againSent = false;
 
 ws.onopen = () => {
   console.log('[harness] connected');
@@ -56,6 +59,14 @@ ws.onmessage = (e) => {
     abortSent = true;
     setTimeout(() => { console.log('[harness] -> station_game_abort (cancel during setup)'); ws.send(JSON.stringify({ type: 'station_game_abort' })); }, 300);
   }
+  if (m.type === 'spec_end' && process.env.SMOKE_AGAIN === '1' && !againSent) {
+    againSent = true;
+    setTimeout(() => {
+      console.log('[harness] -> start_station_game (a second game after the first ended)');
+      ws.send(JSON.stringify({ type: 'start_station_game', gameType: 'xiangqi', difficulty: 3 }));
+    }, 300);
+  }
+  if (m.type === 'error' && /already in a room/.test(m.detail || '')) seen.push('REFUSED_ALREADY_IN_ROOM');
   if (m.type === 'move_applied' && process.env.SMOKE_ABORT === '1' && !abortSent) {
     abortSent = true;
     console.log('[harness] -> station_game_abort');

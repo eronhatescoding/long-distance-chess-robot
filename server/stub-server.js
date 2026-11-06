@@ -1044,7 +1044,7 @@ async function kioskBusy(stationId) {
   if (xst && (xst.requested || xst.partyRoom || (xst.room && xst.room.createdByUs))) return true;
   const kiosk = kioskFor(stationId);
   if (!kiosk) return false;
-  if (kiosk.room || kiosk.watching) return true;
+  if (kiosk.room || watchingLive(kiosk)) return true;
   if (Date.now() - (kioskLastDelivery.get(String(stationId)) || 0) < 10000) return true;
   if (!kiosk.sessionId || !db) return false;
   const found = await findSession({ sessionId: kiosk.sessionId });
@@ -1909,9 +1909,9 @@ function xqApplyState(st, g) {
     xqFinishRoom(st, {}, 'abandoned');
     return;
   }
-  // (No setup-problem relay for two-machine party rooms: the engine's paired-room view never reads
-  // paused/error during setup and paired stations do not report setup attention, so there is
-  // nothing to relay. Only single-machine website games get station_setup_problem.)
+  // (Two-machine party rooms need no station_setup_problem: their opening check reads as playing, and
+  // an engine with accepts_attention reports a wrong opening as paused + error naming the side
+  // ("红方棋盘：…"), which xqSyncError below shows on both kiosks and clears when it is fixed.)
   // a waiting PvP room whose opponent just joined becomes a live game
   if (!room.started && g.phase === 'playing') {
     xqApplyPvpStations(room, g); // the second station appears only now
@@ -1988,6 +1988,10 @@ function xqFinishRoom(st, g, status) {
     specSend(room, { type: 'spec_end' });
     recordGameOver(room, null, 'abandoned');
     rooms.delete(room.code);
+    // The stream is over for its watchers too: a kiosk left "watching" a deleted room is refused every
+    // new game ("already in a room") and every tap (busy) until the server restarts.
+    for (const s of room.spectators) if (s.watching === room) s.watching = null;
+    room.spectators.clear();
   }
   console.log(`[xq] ${st.id}: game ${st.gameId} ${status} (winner ${winner || '—'})`);
   if (room.physical) {
@@ -2362,6 +2366,17 @@ function recordGameOver(room, winner, status) {
   });
 }
 
+// Whether a socket is watching a room that is still live. A room that has finished (a result still on
+// screen, or one that ended some way that never cleared the link) no longer counts: it is detached here,
+// so starting a new game, watching another one or a card tap is never refused because of it.
+function watchingLive(socket) {
+  const room = socket.watching;
+  if (!room) return false;
+  if (rooms.get(room.code) === room) return true;
+  detachSpectator(socket);
+  return false;
+}
+
 function detachSpectator(socket) {
   const room = socket.watching;
   if (!room) return;
@@ -2733,7 +2748,7 @@ function handleClientMessage(socket, text) {
       if (!socket.kioskStation) {
         return send(socket, { type: 'error', detail: 'only a station screen can start machine games' });
       }
-      if (socket.room || socket.watching) return alreadyInRoom(socket);
+      if (socket.room || watchingLive(socket)) return alreadyInRoom(socket);
       xqRequestStationGame(socket, msg);
       break;
     }
@@ -2746,7 +2761,7 @@ function handleClientMessage(socket, text) {
     }
     case 'watch': {
       if (socket.room) return alreadyInRoom(socket);
-      if (socket.watching) return send(socket, { type: 'error', detail: 'already watching a game' });
+      if (watchingLive(socket)) return send(socket, { type: 'error', detail: 'already watching a game' });
       const room = rooms.get(String(msg.code || '').toUpperCase());
       if (!room) return send(socket, { type: 'error', detail: 'no such game' });
       if (room.createdByUs && room.setupState !== 'playing') {

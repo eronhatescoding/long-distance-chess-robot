@@ -37,8 +37,12 @@
 import { initBoard } from "./board.js";
 import { initXiangqi } from "./xiangqi.js";
 import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.js";
+import { loadClientConfig, createFriendsLifecycle, startClientServices } from "./client-boot.js";
 
 (() => {
+  // Fetch while the local UI is being prepared. Firebase imports still wait
+  // for this decision, so offline kiosks make no Google requests.
+  const configReady = loadClientConfig(() => fetch("/config.json"));
   // Kiosk station mode: ?station=<id> marks this page as a machine's
   // touchscreen. From the URL only — never sessionStorage: a bare typed URL
   // must always be spectator mode, even in a tab that was once a kiosk. The
@@ -288,6 +292,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   let myUid = null;
   let guestMode = false; // offline kiosk: no sign-in, solo vs robot only
   let friends = null; // initialized at boot, online mode only
+  const friendsLifecycle = createFriendsLifecycle(() => currentUser);
 
   function applyModeGate() {
     playButtons.forEach((b) => (b.disabled = !playMode));
@@ -360,7 +365,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     refreshProfile();
     applyModeGate();
     btnSignOut.classList.remove("hidden");
-    friends?.onSignIn(user);
+    friendsLifecycle.sync();
     connect(); // first login — or a no-op when the kiosk pre-connected at boot
     if (ws && ws.readyState === WebSocket.OPEN) {
       // the kiosk socket opened while signed out (its hello carried no
@@ -382,7 +387,7 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     myName = null;
     myUid = null;
     btnSignOut.classList.add("hidden");
-    friends?.onSignOut();
+    friendsLifecycle.sync();
     renderKioskState(); // a kiosk goes back to the attract screen
     // a kiosk keeps its socket through sign-out — staying registered for tap
     // pushes matters more than the brief identity reset a reconnect would cause
@@ -2240,44 +2245,39 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
   });
 
   // Boot: /config.json decides which personality this page has.
-  //   online  — load the Firebase-backed modules (auth.js, friends.js) and
-  //             require sign-in; the lobby opens once Firebase confirms who
-  //             this is. (onAuthStateChanged fires asynchronously, so
-  //             `friends` is always initialized before onAuthed runs.)
+  //   online  — start Firebase Authentication as soon as it loads; optional
+  //             friends/Firestore loading must not delay tap redemption.
   //   offline — the kiosk Pi: skip sign-in, guest solo play, and the
   //             Google-hosted SDK is never requested at all.
   (async () => {
-    let config = {};
-    try {
-      config = await (await fetch("/config.json")).json();
-    } catch {
-      // page served by something other than the game server — assume online
-    }
+    const config = await configReady;
     gameServerUrl = config.gameServerUrl || null;
     stationDevices = config.stationDevices || {};
     // a station screen must be reachable for tap pushes BEFORE anyone signs
     // in — the push IS the login. Connect immediately, signed-out.
     if (stationKiosk) connect();
-    if (config.offline) {
-      enterGuestMode();
-      return;
-    }
-    const [{ initAuth }, { initFriends }] = await Promise.all([
-      import("./auth.js"),
-      import("./friends.js"),
-    ]);
-    const authApi = initAuth({ onAuthed, onSignedOut });
-    friends = initFriends({
-      app: authApi.app,
-      send,
-      canPlay: () => playMode,
-      getGameContext: () => ({ inRoom, soloMode, oppUid, oppName }),
+    const services = startClientServices(config, {
+      loadAuth: () => import("./auth.js"),
+      loadFriends: () => import("./friends.js"),
+      authCallbacks: { onAuthed, onSignedOut },
+      friendsOptions: {
+        send,
+        canPlay: () => playMode,
+        getGameContext: () => ({ inRoom, soloMode, oppUid, oppName }),
+      },
+      onAuthReady(authApi) {
+        btnSignOut.onclick = () => {
+          endTapSession("signed_out");
+          authApi.signOut();
+        };
+      },
+      onFriendsReady(api) {
+        friends = api;
+        friendsLifecycle.attach(api);
+      },
+      onOffline: enterGuestMode,
     });
-    // Sign out doubles as the website's Disconnect: the tap session ends
-    // immediately, no grace window.
-    btnSignOut.onclick = () => {
-      endTapSession("signed_out");
-      authApi.signOut();
-    };
+    services.authReady.catch(() => console.warn("Sign-in could not start."));
+    services.friendsReady.catch(() => console.warn("Friends could not load."));
   })();
 })();

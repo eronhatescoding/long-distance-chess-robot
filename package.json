@@ -5,7 +5,8 @@
   "description": "Long-distance robot chess — game client, game server, and tap-to-play endpoint",
   "scripts": {
     "start": "node server/stub-server.js",
-    "add-card": "node server/add-card.js"
+    "add-card": "node server/add-card.js",
+    "test": "node --test tests/*.test.cjs"
   },
   "engines": {
     "node": ">=20.12"

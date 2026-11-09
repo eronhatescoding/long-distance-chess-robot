@@ -79,6 +79,8 @@ const DICTS = {
     "auth.err.bad-token": "that tap link is invalid or expired — tap again",
     "auth.err.token-mismatch": "that tap link belongs to a different project",
     "auth.err.redeem": "that tap link didn't work — tap again",
+    "auth.err.timeout": "sign-in is taking too long — check the network and tap again",
+    "auth.err.busy": "another sign-in is still finishing — wait a moment",
 
     // mode banner
     "mode.play": "play mode — tap session active",
@@ -367,6 +369,8 @@ const DICTS = {
     "auth.err.bad-token": "刷卡链接无效或已过期 — 请重新刷卡",
     "auth.err.token-mismatch": "该刷卡链接属于其他项目",
     "auth.err.redeem": "刷卡链接无效 — 请重新刷卡",
+    "auth.err.timeout": "登录超时 — 请检查网络后重新刷卡",
+    "auth.err.busy": "上一次登录还在进行中 — 请稍等",
 
     "mode.play": "对战模式 — 刷卡会话已激活",
     "mode.spectator": "观战模式 — 在机器上刷卡或刷手机即可对战",

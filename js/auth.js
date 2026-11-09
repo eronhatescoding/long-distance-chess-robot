@@ -116,6 +116,21 @@ export function initAuth({ onAuthed, onSignedOut }) {
   let tapPlay = false; // in-memory only, dies with the page
   let tapSessionId = null; // from /redeem — lets the client end its session
 
+  // One tap sign-in at a time: an initial ?code link and a kiosk push share
+  // this flow. While it runs, onAuthStateChanged must NOT hand a cached
+  // Firebase user to the app — that is someone's previous login, not the
+  // tapped player (and if it is the same uid, Firebase never re-fires after
+  // signInWithCustomToken, so the session id would be lost: Sign out then
+  // could not end the station event).
+  let tap = null; // { key, promise } while in flight
+  let deliveredUser = null; // the User object last handed to onAuthed
+
+  const REDEEM_TIMEOUT_MS = 15000; // per /redeem attempt
+  const REDEEM_ATTEMPTS = 3; // same code + same attempt id each time
+  const SIGNIN_TIMEOUT_MS = 20000; // browser -> Google identity service
+
+  const kioskError = document.getElementById("kioskSignInError");
+
   const params = new URLSearchParams(location.search);
   const token = params.get("token");
   const code = params.get("code");
@@ -124,19 +139,130 @@ export function initAuth({ onAuthed, onSignedOut }) {
     subEl.textContent = t("auth.tap");
     form.classList.add("hidden");
     toggleBtn.classList.add("hidden");
-    // Optimistic: onAuthStateChanged reads the mode when the sign-in lands,
-    // and it fires before the promises below resolve.
-    tapPlay = true;
+    setError("");
+    if (kioskError) kioskError.textContent = "";
+    document.getElementById("kioskAttract")?.classList.add("signing-in");
   }
 
   function failTapSignIn(message) {
     tapPlay = false;
-    // a kiosk showing the signing-in state goes back to the normal attract
+    // a kiosk showing the signing-in state goes back to the normal attract,
+    // and says why — its auth form is hidden, so setError alone is invisible
     document.getElementById("kioskAttract")?.classList.remove("signing-in");
+    if (kioskError) kioskError.textContent = message;
     form.classList.remove("hidden");
     toggleBtn.classList.remove("hidden");
     renderFormText();
     setError(message);
+    // a sign-in that failed leaves whatever account Firebase already had;
+    // report it (as spectator) now that the tap no longer owns the screen
+    const user = auth.currentUser;
+    if (user && user !== deliveredUser) {
+      deliveredUser = user;
+      screen.classList.add("hidden");
+      onAuthed(user, "spectator", null);
+    }
+  }
+
+  function tapError(key, extra) {
+    return Object.assign(new Error(t(key)), { tapKey: key }, extra || {});
+  }
+
+  function withTimeout(promise, ms, key) {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(tapError(key)), ms); }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // POST /redeem with bounded retries. The attempt id makes a retry after a
+  // lost response safe: the server re-issues the token only to the caller
+  // that consumed the code, never to anyone else holding the same code.
+  async function postRedeem(tapCode, attempt) {
+    let lastErr = null;
+    for (let i = 0; i < REDEEM_ATTEMPTS; i++) {
+      if (i) await sleep(800 * i);
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), REDEEM_TIMEOUT_MS);
+      try {
+        const r = await fetch("/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: tapCode, attempt }),
+          cache: "no-store",
+          signal: ctl.signal,
+        });
+        if (r.status >= 500) { lastErr = tapError("auth.err.network"); continue; }
+        const data = await r.json();
+        if (!data.ok) throw tapError("auth.err.redeem", { final: true, detail: data.detail });
+        return data;
+      } catch (err) {
+        if (err.final) throw err;
+        lastErr = tapError(ctl.signal.aborted ? "auth.err.timeout" : "auth.err.network");
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastErr;
+  }
+
+  function newAttemptId() {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Runs one tap sign-in. `getToken` resolves { token, sessionId?, gameType? }.
+  // A second call with the same key (a repeated kiosk push of the same code)
+  // shares the running operation; a different key while one runs is refused.
+  function runTapSignIn(key, getToken) {
+    if (tap) {
+      if (tap.key === key) return tap.promise;
+      return Promise.reject(tapError("auth.err.busy", { busy: true }));
+    }
+    beginTapSignIn();
+    const marks = { start: performance.now() };
+    const promise = (async () => {
+      const data = await getToken();
+      marks.redeemed = performance.now();
+      if (data.gameType) sessionStorage.setItem("nxGame", data.gameType);
+      const cred = await withTimeout(
+        signInWithCustomToken(auth, data.token), SIGNIN_TIMEOUT_MS, "auth.err.timeout"
+      );
+      marks.signedIn = performance.now();
+      tapPlay = true;
+      tapSessionId = data.sessionId || null;
+      tap = null;
+      deliveredUser = cred.user;
+      screen.classList.add("hidden");
+      await onAuthed(cred.user, "play", tapSessionId);
+      marks.ready = performance.now();
+      return {
+        sessionId: tapSessionId,
+        timings: {
+          redeemMs: Math.round(marks.redeemed - marks.start),
+          firebaseMs: Math.round(marks.signedIn - marks.redeemed),
+          uiMs: Math.round(marks.ready - marks.signedIn),
+          totalMs: Math.round(marks.ready - marks.start),
+        },
+      };
+    })();
+    tap = { key, promise };
+    promise.catch((err) => {
+      if (tap && tap.promise === promise) tap = null;
+      failTapSignIn(err.tapKey ? err.message : friendly(err));
+    });
+    return promise;
+  }
+
+  function redeemTap(tapCode) {
+    const c = String(tapCode || "").toUpperCase().trim();
+    if (!c) return Promise.reject(tapError("auth.err.redeem"));
+    const attempt = newAttemptId();
+    return runTapSignIn(`code:${c}`, () => postRedeem(c, attempt));
   }
 
   // strip the credential from the URL (don't leak via refresh/share) but keep
@@ -146,34 +272,25 @@ export function initAuth({ onAuthed, onSignedOut }) {
     return location.pathname + (station ? `?station=${encodeURIComponent(station)}` : "");
   })();
 
+  let initialTap = null;
   if (code) {
     history.replaceState(null, "", strippedUrl);
-    beginTapSignIn();
-    fetch("/redeem", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.ok) throw new Error(data.detail || t("auth.err.redeem"));
-        // the machine's physical board determines the lobby's game theme
-        if (data.gameType) sessionStorage.setItem("nxGame", data.gameType);
-        tapSessionId = data.sessionId || null;
-        return signInWithCustomToken(auth, data.token);
-      })
-      .catch((err) => failTapSignIn(friendly(err)));
+    initialTap = redeemTap(code);
   } else if (token) {
     history.replaceState(null, "", strippedUrl);
-    beginTapSignIn();
-    signInWithCustomToken(auth, token).catch((err) => failTapSignIn(friendly(err)));
+    initialTap = runTapSignIn("token", async () => ({ token }));
   }
+  initialTap?.catch(() => {}); // failTapSignIn already reported it
 
   onAuthStateChanged(auth, (user) => {
+    if (tap) return; // the tap flow reports its own user when it completes
     if (user) {
+      if (user === deliveredUser) return; // already reported by the tap flow
+      deliveredUser = user;
       screen.classList.add("hidden");
-      onAuthed(user, tapPlay ? "play" : "spectator", tapPlay ? tapSessionId : null);
+      onAuthed(user, "spectator", null);
     } else {
+      deliveredUser = null;
       screen.classList.remove("hidden");
       onSignedOut();
     }
@@ -181,6 +298,8 @@ export function initAuth({ onAuthed, onSignedOut }) {
 
   return {
     app,
+    redeemTap,
+    initialTap,
     signOut() {
       tapPlay = false;
       return signOut(auth);

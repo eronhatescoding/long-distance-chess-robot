@@ -966,6 +966,19 @@ body.kiosk .diff-labels {
     display: none;
 }
 
+.attract-signin-error {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.8vmin;
+    font-weight: 700;
+    color: #b3261e;
+    margin-top: 1.2vmin;
+}
+
+.attract-signin-error:empty,
+.kiosk-attract.signing-in .attract-signin-error {
+    display: none;
+}
+
 .attract-signin .as-big {
     font-family: "Baloo 2", "Fredoka", sans-serif;
     font-size: 4.6vmin;

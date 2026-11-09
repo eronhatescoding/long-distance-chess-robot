@@ -25,6 +25,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 // ---------------------------------------------------------------------------
 
 const { firebaseCredentials } = require('./env');
+const { createTapStore } = require('./tap-store');
 
 let fbAuth = null;
 let db = null;
@@ -318,7 +319,7 @@ const handleTap = postEndpoint('tap', ['stationId', 'stationSecret'], async (msg
   }
 
   const code = makeCode();
-  await db.collection('tap_sessions').add({
+  const tapRef = await db.collection('tap_sessions').add({
     uid,
     stationId,
     via,
@@ -338,34 +339,17 @@ const handleTap = postEndpoint('tap', ['stationId', 'stationSecret'], async (msg
   // across the navigation).
   let delivered = false;
   if (msg.cardId) {
-    delivered = deliverToKiosk(stationId, `${base}/game.html?station=${encodeURIComponent(stationId)}&code=${code}`);
+    delivered = deliverToKiosk(stationId, `${base}/game.html?station=${encodeURIComponent(stationId)}&code=${code}`, tapRef.id);
   }
   console.log(`[tap] ${stationId}: ${via} tap -> uid ${uid}${delivered ? ' (pushed to kiosk)' : ''}`);
   jsonResponse(res, 200, { ok: true, uid, url, delivered });
 });
 
 const handleRedeem = postEndpoint('redeem', ['code'], async (msg, fail, res) => {
-  const code = String(msg.code).toUpperCase().trim();
-  const snap = await db.collection('tap_sessions').where('code', '==', code).limit(1).get();
-  if (snap.empty) return fail(404, 'unknown login code');
-
-  const ref = snap.docs[0].ref;
-  const result = await db.runTransaction(async (t) => {
-    const doc = await t.get(ref);
-    const d = doc.data();
-    if (d.used) return { error: 'login code already used — tap again for a new one' };
-    if (d.expiresAt.toMillis() < Date.now()) return { error: 'login code expired — tap again for a new one' };
-    // The first redemption anchors the session's max lifetime. A re-entry
-    // code (bridge duplicate on an active event) keeps the original anchor.
-    const update = { used: true };
-    if (!d.redeemedAt) update.redeemedAt = fsFieldValue.serverTimestamp();
-    t.update(ref, update);
-    return {
-      uid: d.uid, displayName: d.displayName || null, gameType: d.gameType || null,
-      redeemedAtMs: d.redeemedAt ? d.redeemedAt.toMillis() : Date.now(),
-    };
-  });
-  if (result.error) return fail(410, result.error);
+  const t0 = Date.now();
+  const result = await tapStore.redeem(msg.code, msg.attempt);
+  if (result.error) return fail(result.http, result.error);
+  const tTx = Date.now();
 
   // bridge players have no Firebase profile — carry the asserted display
   // name as a claim so the client can greet them properly
@@ -373,11 +357,23 @@ const handleRedeem = postEndpoint('redeem', ['code'], async (msg, fail, res) => 
     result.uid,
     result.displayName ? { name: result.displayName } : undefined
   );
+  const tToken = Date.now();
   // the session id lets the client end its own tap session (refresh lock /
   // Disconnect button) and lets the server link the socket to the session
-  activeSessions.set(ref.id, result.redeemedAtMs + SESSION_MAX_MS);
-  console.log(`[redeem] ${code} -> uid ${result.uid}`);
-  jsonResponse(res, 200, { ok: true, token, gameType: result.gameType, sessionId: ref.id });
+  activeSessions.set(result.sessionId, result.redeemedAtMs + SESSION_MAX_MS);
+  // never log the code: the session/event ids correlate everything
+  console.log(`[redeem] session ${result.sessionId} -> uid ${result.uid}${result.replay ? ' (retry after lost response)' : ''}`);
+  const prev = tapTimings.get(result.sessionId) || {};
+  noteTiming(result.sessionId, { eventId: result.eventId || prev.eventId, redeemedAt: tToken },
+    `redeemed in ${tToken - t0} ms (transaction ${tTx - t0} ms, token ${tToken - tTx} ms)` +
+    (prev.pushedAt ? `, ${tToken - prev.pushedAt} ms after the kiosk push` : ''));
+  if (!result.replay) {
+    persistTiming(result.sessionId, {
+      redeemMs: tToken - t0, tokenMs: tToken - tTx,
+      ...(prev.pushedAt ? { pushToRedeemMs: tToken - prev.pushedAt } : {}),
+    });
+  }
+  jsonResponse(res, 200, { ok: true, token, gameType: result.gameType, sessionId: result.sessionId });
 });
 
 // POST /lookup-user (Phase 5) — "add friend by email" needs to turn an email
@@ -485,7 +481,7 @@ async function handleHceToken(req, res) {
       expiresAt,
       used: false,
     });
-    console.log(`[hce-token] issued ${code} for uid ${decoded.uid}`);
+    console.log(`[hce-token] issued a code for uid ${decoded.uid}`);
     jsonResponse(res, 200, { ok: true, code, expiresAt: expiresAt.toMillis() });
   } catch (err) {
     fail(401, `invalid id token: ${err.message}`);
@@ -526,62 +522,62 @@ async function handleBridgeTap(req, res) {
     const uid = `sql_${String(playerId)}`;
     const base = (process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 
+    const receivedAt = Date.now();
+    const kioskUrl = (stationId, code) =>
+      `${base}/game.html?station=${encodeURIComponent(stationId)}&code=${code}`;
+
     // Idempotent: a retried or double-delivered tap returns the same session,
     // but never extends it — the caller learns what became of the original
     // code and can start a fresh eventId when it is already redeemed/expired.
-    const dup = await db.collection('tap_sessions')
-      .where('eventId', '==', String(eventId)).limit(1).get();
-    if (!dup.empty) {
-      const docRef = dup.docs[0].ref;
-      const existing = dup.docs[0].data();
+    // Concurrent duplicates are serialized by the transaction in
+    // tapStore.createBridgeEvent; this first lookup is only the fast path.
+    const replyDuplicate = async (found) => {
+      const docRef = found.ref;
+      const existing = found.data;
       const st = sessionStatus(existing);
-      // A retry of a kiosk-delivered tap re-pushes the login — but only while
-      // the code is still unused (a redeemed screen is already signed in).
-      if (existing.deliverTo === 'kiosk' && existing.stationId && !existing.used && st.status !== 'ended' && st.status !== 'expired') {
-        deliverToKiosk(
-          existing.stationId,
-          `${base}/game.html?station=${encodeURIComponent(existing.stationId)}&code=${existing.code}`
-        );
+      const delivery = existing.deliverTo === 'kiosk' ? 'kiosk' : (existing.deliverTo || 'ask');
+      let delivered = false;
+      // A retry of a kiosk-delivered tap re-pushes the login only while the
+      // code is unused AND no push for this session went out recently: the
+      // screen may be mid-sign-in, and a second push must not restart it.
+      if (existing.deliverTo === 'kiosk' && existing.stationId && !existing.used &&
+          st.status === 'pending') {
+        const last = kioskLastDelivery.get(String(existing.stationId));
+        const recent = last && last.sessionId === docRef.id && Date.now() - last.at < KIOSK_REPUSH_MS;
+        delivered = recent ? true : deliverToKiosk(existing.stationId, kioskUrl(existing.stationId, existing.code), docRef.id);
+        if (recent) console.log(`[bridge] duplicate ${eventId}: login already pushed ${Date.now() - last.at} ms ago — not re-pushed`);
+      } else if (existing.deliverTo === 'kiosk') {
+        delivered = !!existing.used; // the screen already redeemed it
       }
-      if (st.status === 'active') {
-        // Re-entry: the phone is the card and may be put away, so the app can
-        // fetch a login code while the station is still occupied. The event
-        // deadline (first redemption + max lifetime) never moves.
-        // Idempotent: if a previous re-entry code is still live and unused,
-        // return THAT one — a retry after a lost response must not invalidate
-        // a code that may still be in transit to the phone.
-        const now = Date.now();
-        const curExp = existing.expiresAt ? existing.expiresAt.toMillis() : 0;
-        if (!existing.used && curExp > now) {
-          console.log(`[bridge] re-entry: returning live code for active event ${eventId}`);
+      if (st.status === 'active' && existing.deliverTo !== 'kiosk') {
+        // Re-entry (app delivery only): the phone is the card and may be put
+        // away, so the app can fetch a login code while the station is still
+        // occupied. The event deadline (first redemption + max lifetime)
+        // never moves. A live unused code is returned as-is: a retry after a
+        // lost response must not invalidate a code still in transit.
+        const re = await tapStore.reentryCode(docRef);
+        if (re.code) {
+          console.log(`[bridge] re-entry for active event ${eventId}: ${re.reused ? 'returning the live code' : 'new code issued'}`);
           return jsonResponse(res, 200, {
-            ok: true, uid, url: `${base}/game.html?code=${existing.code}`, duplicate: true,
-            ...st,
+            ok: true, uid, url: `${base}/game.html?code=${re.code}`, duplicate: true,
+            ...re.status, delivery, delivered,
           });
         }
-        const newCode = makeCode();
-        await docRef.update({
-          code: newCode,
-          used: false,
-          expiresAt: fsTimestamp.fromMillis(now + REDEEM_TTL_MS),
-        });
-        console.log(`[bridge] re-entry code issued for active event ${eventId}`);
-        return jsonResponse(res, 200, {
-          ok: true, uid, url: `${base}/game.html?code=${newCode}`, duplicate: true,
-          ...st,
-        });
+        Object.assign(st, re.status);
       }
       console.log(`[bridge] duplicate eventId ${eventId} — session is ${st.status}`);
       return jsonResponse(res, 200, {
         ok: true, uid, url: `${base}/game.html?code=${existing.code}`, duplicate: true,
-        ...st,
+        ...st, delivery, delivered,
       });
-    }
+    };
 
-    // Tombstone: a Disconnect that raced ahead of a delayed bridge request
-    // wins — the ended event must never become playable afterwards. (After
-    // the duplicate check: an event that *was* created reports its real
-    // status above instead of this rejection.)
+    const dup = await findSession({ eventId });
+    if (dup) return replyDuplicate(dup);
+
+    // Tombstone fast path: a Disconnect that raced ahead of a delayed bridge
+    // request wins — the ended event must never become playable afterwards.
+    // (Re-checked inside the create transaction below.)
     const tomb = await db.collection('ended_events').doc(String(eventId)).get();
     if (tomb.exists) {
       console.log(`[bridge] rejected ${eventId}: session was ended before creation`);
@@ -622,9 +618,8 @@ async function handleBridgeTap(req, res) {
       }
     }
 
-    const code = makeCode();
     const expiresAt = Date.now() + REDEEM_TTL_MS;
-    const docRef = await db.collection('tap_sessions').add({
+    const created = await tapStore.createBridgeEvent(eventId, (newCode) => ({
       uid,
       eventId: String(eventId),
       via: 'bridge',
@@ -633,22 +628,30 @@ async function handleBridgeTap(req, res) {
       displayName: msg.displayName ? String(msg.displayName).slice(0, 24) : null,
       gameType: msg.gameType === 'xiangqi' ? 'xiangqi' : null,
       // kiosk-delivered sessions stay coupled: the screen IS the station, so
-      // a browser end (idle lock, crash, refresh) frees the machine.
+      // a browser end (idle lock, crash, refresh, Sign out) frees the machine.
       // deliverTo: null while an "ask" prompt is undecided.
       ...(delivery === 'kiosk' ? { coupled: true } : {}),
       deliverTo: delivery === 'ask' ? null : delivery,
-      code,
+      code: newCode,
       createdAt: fsFieldValue.serverTimestamp(),
       expiresAt: fsTimestamp.fromMillis(expiresAt),
       used: false,
-    });
+    }));
+    if (created.kind === 'tombstoned') {
+      console.log(`[bridge] rejected ${eventId}: session was ended before creation`);
+      return jsonResponse(res, 409, {
+        ok: false, status: 'ended', detail: 'event was ended before it was created',
+      });
+    }
+    // a concurrent duplicate won the race: answer exactly like a retry
+    if (created.kind === 'existing') return replyDuplicate(created);
+    const docRef = created.ref;
+    const code = created.data.code;
+    noteTiming(docRef.id, { eventId: String(eventId), receivedAt });
     const url = `${base}/game.html?code=${code}`;
     let delivered = false;
     if (delivery === 'kiosk') {
-      delivered = deliverToKiosk(
-        msg.stationId,
-        `${base}/game.html?station=${encodeURIComponent(msg.stationId)}&code=${code}`
-      );
+      delivered = deliverToKiosk(msg.stationId, kioskUrl(msg.stationId, code), docRef.id);
     } else if (delivery === 'ask') {
       const askUrl = `${base}/game.html?station=${encodeURIComponent(msg.stationId)}&code=${code}`;
       sendJSON(askKiosk, { type: 'station_ask', url: askUrl, name: msg.displayName || null });
@@ -665,6 +668,9 @@ async function handleBridgeTap(req, res) {
       }, 30000).unref();
     }
     console.log(`[bridge] tap ${eventId}: player ${playerId} -> ${uid}${delivered ? ' (pushed to kiosk)' : ''}`);
+    const acceptedMs = Date.now() - receivedAt;
+    noteTiming(docRef.id, {}, `bridge accepted in ${acceptedMs} ms (delivery ${delivery}${delivered ? ', pushed' : ''})`);
+    persistTiming(docRef.id, { bridgeAcceptMs: acceptedMs });
     jsonResponse(res, 200, {
       ok: true, uid, url, status: 'pending', expiresAt, delivered, delivery,
     });
@@ -795,39 +801,36 @@ const SESSION_MAX_MS = Number(process.env.SESSION_MAX_MS) || 2 * 60 * 60 * 1000;
 const sessionTimers = new Map(); // sessionId -> grace timeout (browser lost)
 const activeSessions = new Map(); // sessionId -> max-lifetime deadline (ms)
 
-async function findSession({ sessionId, eventId }) {
-  if (sessionId) {
-    const doc = await db.collection('tap_sessions').doc(String(sessionId)).get();
-    return doc.exists ? { ref: doc.ref, data: doc.data() } : null;
-  }
-  const snap = await db.collection('tap_sessions')
-    .where('eventId', '==', String(eventId)).limit(1).get();
-  return snap.empty ? null : { ref: snap.docs[0].ref, data: snap.docs[0].data() };
-}
+// Event/session rules that must survive concurrent requests (transactions):
+// see server/tap-store.js. sessionStatus is pure and works without Firebase.
+const tapStore = createTapStore({
+  db,
+  FieldValue: fsFieldValue,
+  Timestamp: fsTimestamp,
+  sessionMaxMs: SESSION_MAX_MS,
+  redeemTtlMs: REDEEM_TTL_MS,
+  makeCode,
+});
+const findSession = (q) => tapStore.findSession(q);
+const sessionStatus = (d, now) => tapStore.sessionStatus(d, now);
 
-// pending -> active -> ended|expired. "active" is anchored on redeemedAt:
-// once any code has been redeemed, the event stays active until its max
-// lifetime — an unused re-entry code expiring must NOT regress it to
-// pending/expired (joint-test finding, 26 Oct: refresh + lost re-entry
-// response did exactly that).
-function sessionStatus(d, now = Date.now()) {
-  if (d.endedAt) return { status: 'ended', reason: d.endReason || null };
-  if (d.redeemedAt) {
-    const deadline = d.redeemedAt.toMillis() + SESSION_MAX_MS;
-    return deadline < now
-      ? { status: 'expired', reason: 'max_lifetime', expiresAt: deadline }
-      : { status: 'active', expiresAt: deadline };
-  }
-  // redeemed before redeemedAt existed (pre-lifecycle test docs): any such
-  // session is long past its 2 h lifetime — report it as expired
-  if (d.used) {
-    return { status: 'expired', reason: 'max_lifetime', expiresAt: null };
-  }
-  // never redeemed: the initial code's 5-minute expiry applies
-  const expMs = d.expiresAt ? d.expiresAt.toMillis() : 0;
-  return expMs < now
-    ? { status: 'expired', reason: 'code_expired', expiresAt: expMs }
-    : { status: 'pending', expiresAt: expMs };
+// Sanitized stage timings per tap: event/session ids and durations only —
+// never codes, tokens or login URLs. In memory for correlation (bridge
+// receipt -> kiosk push -> redeem -> browser ready), persisted on the
+// session document under `timing` for later comparison.
+const tapTimings = new Map(); // sessionId -> { eventId, receivedAt, pushedAt, redeemedAt }
+function noteTiming(sessionId, fields, logLine) {
+  if (!sessionId) return;
+  const cur = tapTimings.get(sessionId) || {};
+  Object.assign(cur, fields);
+  tapTimings.set(sessionId, cur);
+  if (tapTimings.size > 500) tapTimings.delete(tapTimings.keys().next().value);
+  if (logLine) console.log(`[timing] ${cur.eventId ? `event ${cur.eventId} ` : ''}session ${sessionId}: ${logLine}`);
+}
+function persistTiming(sessionId, timing) {
+  if (!db || !sessionId) return;
+  db.collection('tap_sessions').doc(sessionId).set({ timing }, { merge: true })
+    .catch((err) => console.warn(`[timing] could not store: ${err.message}`));
 }
 
 async function endSession(found, reason) {
@@ -899,12 +902,11 @@ async function handleSessionEnd(req, res) {
 
   try {
     if (authed && msg.eventId) {
-      const found = await findSession({ eventId: msg.eventId });
+      // Disconnect raced ahead of the bridge request: the tombstone is written
+      // in the same transaction that saw no session, so the tap can never
+      // create one when it finally arrives (tapStore.findOrTombstone).
+      const found = await tapStore.findOrTombstone(msg.eventId, 'disconnect_before_create');
       if (!found) {
-        // Disconnect raced ahead of the bridge request: leave a tombstone so
-        // the tap can never create a session when it finally arrives.
-        await db.collection('ended_events').doc(String(msg.eventId))
-          .set({ endedAt: fsFieldValue.serverTimestamp(), reason: 'disconnect_before_create' });
         console.log(`[session-end] tombstoned ${msg.eventId} (ended before creation)`);
         return jsonResponse(res, 200, { ok: true, status: 'ended' });
       }
@@ -955,7 +957,7 @@ async function handleSessionChoose(req, res) {
       return jsonResponse(res, 200, { ok: true, deliverTo: d.deliverTo, already: true });
     }
     await ref.update({ deliverTo: choice });
-    console.log(`[session-choose] ${code} -> ${choice}`);
+    console.log(`[session-choose] session ${ref.id} -> ${choice}`);
     jsonResponse(res, 200, { ok: true, deliverTo: choice });
   } catch (err) {
     fail(500, `session-choose failed: ${err.message}`);
@@ -1015,7 +1017,10 @@ async function handleSessionStatus(req, res) {
 // venue; a per-station kiosk token is the proper fix later.
 
 const kioskByStation = new Map(); // stationId -> socket
-const kioskLastDelivery = new Map(); // stationId -> ms of last pushed login
+const kioskLastDelivery = new Map(); // stationId -> { at, sessionId } of last pushed login
+// A duplicate bridge request for the same session inside this window is not
+// pushed again: the screen is still redeeming the first push.
+const KIOSK_REPUSH_MS = 20000;
 
 function kioskFor(stationId) {
   const k = kioskByStation.get(String(stationId));
@@ -1024,12 +1029,14 @@ function kioskFor(stationId) {
 
 // Push the login URL to the station's screen. Returns true if a kiosk
 // received it.
-function deliverToKiosk(stationId, url) {
+// `delivered` means "written to the screen's socket" — not "signed in".
+function deliverToKiosk(stationId, url, sessionId = null) {
   const kiosk = kioskFor(stationId);
   if (!kiosk) return false;
-  console.log(`[kiosk] delivering login to station ${stationId}`);
-  kioskLastDelivery.set(String(stationId), Date.now());
+  console.log(`[kiosk] delivering login to station ${stationId}${sessionId ? ` (session ${sessionId})` : ''}`);
+  kioskLastDelivery.set(String(stationId), { at: Date.now(), sessionId });
   sendJSON(kiosk, { type: 'station_login', url });
+  if (sessionId) noteTiming(sessionId, { pushedAt: Date.now() });
   return true;
 }
 
@@ -1045,7 +1052,7 @@ async function kioskBusy(stationId) {
   const kiosk = kioskFor(stationId);
   if (!kiosk) return false;
   if (kiosk.room || watchingLive(kiosk)) return true;
-  if (Date.now() - (kioskLastDelivery.get(String(stationId)) || 0) < 10000) return true;
+  if (Date.now() - (kioskLastDelivery.get(String(stationId))?.at || 0) < 10000) return true;
   if (!kiosk.sessionId || !db) return false;
   const found = await findSession({ sessionId: kiosk.sessionId });
   if (!found) return false;
@@ -2689,6 +2696,37 @@ function handleClientMessage(socket, text) {
         clearTimeout(pending); // browser came back inside the grace window
         sessionTimers.delete(socket.sessionId);
       }
+      break;
+    }
+    case 'tap_ready': {
+      // The browser finished a tap sign-in and shows the play UI. Additive
+      // diagnostics only: accepted for the session this socket is linked to,
+      // durations only (whitelisted, clamped numbers). Nothing on the
+      // NexusBoard side reads this yet; /session-status is unchanged.
+      const sid = String(msg.sessionId || '');
+      if (!sid || sid !== socket.sessionId) break;
+      const t = msg.timings && typeof msg.timings === 'object' ? msg.timings : {};
+      const clean = {};
+      for (const k of ['authWaitMs', 'redeemMs', 'firebaseMs', 'uiMs', 'totalMs']) {
+        const v = Number(t[k]);
+        if (Number.isFinite(v)) clean[k] = Math.max(0, Math.min(600000, Math.round(v)));
+      }
+      const pathKind = t.path === 'in_place' || t.path === 'page_load' ? t.path : 'unknown';
+      const prev = tapTimings.get(sid) || {};
+      const now = Date.now();
+      const sinceBridge = prev.receivedAt ? now - prev.receivedAt : null;
+      const sincePush = prev.pushedAt ? now - prev.pushedAt : null;
+      noteTiming(sid, { readyAt: now },
+        `screen ready (${pathKind}${socket.kioskStation ? `, station ${socket.kioskStation}` : ''}): ` +
+        `browser redeem ${clean.redeemMs ?? '?'} ms, firebase ${clean.firebaseMs ?? '?'} ms, ui ${clean.uiMs ?? '?'} ms` +
+        (sincePush != null ? `; ${sincePush} ms after push` : '') +
+        (sinceBridge != null ? `, ${sinceBridge} ms after bridge receipt` : ''));
+      persistTiming(sid, {
+        browser: { ...clean, path: pathKind },
+        ...(sincePush != null ? { pushToReadyMs: sincePush } : {}),
+        ...(sinceBridge != null ? { bridgeToReadyMs: sinceBridge } : {}),
+        uiReadyAt: fsFieldValue ? fsFieldValue.serverTimestamp() : null,
+      });
       break;
     }
     case 'kiosk_hello': {

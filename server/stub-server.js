@@ -26,6 +26,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
 const { firebaseCredentials } = require('./env');
 const { createTapStore } = require('./tap-store');
+const { createAssetVersioner, rewriteHtml, cachePolicy, etagFor, isPublicPath } = require('./static-cache');
 
 let fbAuth = null;
 let db = null;
@@ -85,7 +86,13 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
   '.map': 'application/json; charset=utf-8',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
 };
+
+// Public JS/CSS get a release version (see server/static-cache.js).
+const assetVersion = createAssetVersioner(PROJECT_ROOT);
 
 // ---------------------------------------------------------------------------
 // Static file server
@@ -93,8 +100,11 @@ const MIME_TYPES = {
 
 const server = http.createServer((req, res) => {
   let urlPath;
+  let query;
   try {
-    urlPath = new URL(req.url, 'http://localhost').pathname;
+    const parsed = new URL(req.url, 'http://localhost');
+    urlPath = parsed.pathname;
+    query = parsed.searchParams;
   } catch {
     res.writeHead(400).end('Bad request');
     return;
@@ -168,18 +178,48 @@ const server = http.createServer((req, res) => {
     res.writeHead(403).end('Forbidden');
     return;
   }
+  // ...and must be part of the public website (never .env, server/, notes)
+  if (!isPublicPath(path.relative(PROJECT_ROOT, filePath))) {
+    res.writeHead(404).end('Not found');
+    return;
+  }
 
   fs.stat(filePath, (err, st) => {
     if (err || !st.isFile()) {
       res.writeHead(404).end('Not found');
       return;
     }
-    const mime = MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
-    res.writeHead(200, {
-      'Content-Type': mime,
-      'Content-Length': st.size,
-      'Cache-Control': 'no-store',
-    });
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = MIME_TYPES[ext] || 'application/octet-stream';
+    const { version, modules } = assetVersion();
+    const cacheControl = cachePolicy(ext, query, version);
+    if (ext === '.html') {
+      // pages pin their scripts/styles to this release's asset version
+      fs.readFile(filePath, 'utf8', (readErr, html) => {
+        if (readErr) return res.writeHead(500).end('Read error');
+        const body = Buffer.from(rewriteHtml(html, { version, modules }));
+        res.writeHead(200, {
+          'Content-Type': mime,
+          'Content-Length': body.length,
+          'Cache-Control': cacheControl,
+        });
+        res.end(req.method === 'HEAD' ? undefined : body);
+      });
+      return;
+    }
+    const headers = { 'Content-Type': mime, 'Cache-Control': cacheControl };
+    if (cacheControl !== 'no-store') {
+      // validators let an unversioned request revalidate with a 304
+      headers.ETag = etagFor(st);
+      headers['Last-Modified'] = st.mtime.toUTCString();
+      if (req.headers['if-none-match'] === headers.ETag) {
+        res.writeHead(304, headers).end();
+        return;
+      }
+    }
+    headers['Content-Length'] = st.size;
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') return res.end();
     fs.createReadStream(filePath).pipe(res);
   });
 });
@@ -231,7 +271,8 @@ function readBody(req) {
 }
 
 function jsonResponse(res, code, obj) {
-  res.writeHead(code, { 'Content-Type': 'application/json' });
+  // API answers (login codes, tokens, session state) are never cacheable
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
 }
 

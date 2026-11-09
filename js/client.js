@@ -292,6 +292,10 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
   let myUid = null;
   let guestMode = false; // offline kiosk: no sign-in, solo vs robot only
   let friends = null; // initialized at boot, online mode only
+  // Firebase-backed auth API once auth.js has loaded (online mode only).
+  // A kiosk login push that arrives before then waits for it.
+  let authApi = null;
+  let authApiReady = null; // Promise<authApi | null>
   const friendsLifecycle = createFriendsLifecycle(() => currentUser);
 
   function applyModeGate() {
@@ -964,11 +968,13 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       updateStatus();
     },
 
-    // A tap at this machine's reader delivered a login to this screen:
-    // navigate to the URL and the normal redeem flow signs the player in.
+    // A tap at this machine's reader delivered a login to this screen.
+    // Redeem it in place with the already-running Firebase Auth — no page
+    // reload, so no config/module/auth startup again and no pagehide end.
+    // A repeated push of the same code joins the running sign-in.
     station_login(msg) {
       if (!stationKiosk || !msg.url) return;
-      location.href = msg.url;
+      kioskLoginInPlace(msg.url);
     },
 
     // Website-controlled machine game (Phase 7): the engine accepted our
@@ -2244,6 +2250,45 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     }
   });
 
+  // Report a finished tap sign-in (visible play UI) to the server: durations
+  // only, never the code or token. Additive diagnostics — nothing on the
+  // NexusBoard side depends on it yet.
+  function reportTapReady(result, extra) {
+    if (!result || !result.sessionId) return;
+    send({ type: "tap_ready", sessionId: result.sessionId, timings: { ...extra, ...result.timings } });
+  }
+
+  let lastKioskCode = null; // a late duplicate push of a finished login is ignored
+  function kioskLoginInPlace(url) {
+    let target;
+    try {
+      target = new URL(url, location.href);
+    } catch {
+      return;
+    }
+    const code = target.searchParams.get("code");
+    const station = target.searchParams.get("station");
+    // a push for another station's screen is never redeemed here
+    if (!code || (station && station !== stationKiosk)) return;
+    const sameCode = code.toUpperCase() === lastKioskCode;
+    if (sameCode && tapSessionId) return; // already signed in with it
+    lastKioskCode = code.toUpperCase();
+    const receivedAt = performance.now();
+    const ready = authApi ? Promise.resolve(authApi) : (authApiReady || Promise.resolve(null));
+    ready.then((api) => {
+      if (!api || !api.redeemTap) {
+        location.href = target.href; // auth unavailable here: old full-page path
+        return;
+      }
+      // the screen's previous tap session (if any) ends before a new one starts
+      if (tapSessionId && !sameCode) endTapSession("replaced");
+      const waitMs = Math.round(performance.now() - receivedAt);
+      api.redeemTap(code)
+        .then((result) => reportTapReady(result, { path: "in_place", authWaitMs: waitMs }))
+        .catch(() => {}); // auth.js already shows the reason on the attract screen
+    });
+  }
+
   // Boot: /config.json decides which personality this page has.
   //   online  — start Firebase Authentication as soon as it loads; optional
   //             friends/Firestore loading must not delay tap redemption.
@@ -2265,7 +2310,10 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
         canPlay: () => playMode,
         getGameContext: () => ({ inRoom, soloMode, oppUid, oppName }),
       },
-      onAuthReady(authApi) {
+      onAuthReady(api) {
+        authApi = api;
+        // a tap link opened directly (phone, or the navigation fallback)
+        api.initialTap?.then((r) => reportTapReady(r, { path: "page_load" })).catch(() => {});
         btnSignOut.onclick = () => {
           endTapSession("signed_out");
           authApi.signOut();
@@ -2277,6 +2325,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       },
       onOffline: enterGuestMode,
     });
+    authApiReady = services.authReady.catch(() => null);
     services.authReady.catch(() => console.warn("Sign-in could not start."));
     services.friendsReady.catch(() => console.warn("Friends could not load."));
   })();

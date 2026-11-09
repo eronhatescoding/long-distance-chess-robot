@@ -61,11 +61,18 @@ function buildLines() {
   line(300, 700, 500, 900);
   line(500, 700, 300, 900);
 
-  parts.push(
-    `<text x="200" y="468" class="xq-river-text" text-anchor="middle">楚 河</text>`,
-    `<text x="600" y="468" class="xq-river-text" text-anchor="middle">漢 界</text>`
-  );
   return parts.join("");
+}
+
+// Flipping the board for the black-side player: pieces and marks remap
+// through xy(), and each river text rotates 180° about its own center so it
+// still reads upright from the black side (like turning the physical board).
+function riverTexts(flipped) {
+  const rot = (x) => (flipped ? ` transform="rotate(180 ${x} 455)"` : "");
+  return (
+    `<text x="200" y="468" class="xq-river-text" text-anchor="middle"${rot(200)}>楚 河</text>` +
+    `<text x="600" y="468" class="xq-river-text" text-anchor="middle"${rot(600)}>漢 界</text>`
+  );
 }
 
 export function initXiangqi(container) {
@@ -76,9 +83,10 @@ export function initXiangqi(container) {
   container.innerHTML =
     `<svg class="xq-svg" viewBox="-45 -45 890 990" aria-hidden="true">` +
     buildLines() +
-    `<g class="xq-marks"></g><g class="xq-pieces"></g></svg>`;
+    `<g class="xq-river"></g><g class="xq-marks"></g><g class="xq-pieces"></g></svg>`;
   const piecesLayer = container.querySelector(".xq-pieces");
   const marksLayer = container.querySelector(".xq-marks");
+  const riverLayer = container.querySelector(".xq-river");
   const SVG_NS = "http://www.w3.org/2000/svg";
 
   let model = INITIAL.map((row) => row.slice());
@@ -86,6 +94,21 @@ export function initXiangqi(container) {
   let movedAt = null; // [rank, file] of the piece that last moved (highlighted)
   let ghost = null;
   let ghostTimer = null;
+  let flipped = false; // black-side POV: own pieces at the bottom
+
+  // model coords -> SVG coords (normal: red home at the bottom)
+  function xy(rank, file) {
+    return flipped
+      ? { x: (8 - file) * 100, y: rank * 100 }
+      : { x: file * 100, y: (9 - rank) * 100 };
+  }
+
+  function setFlip(next) {
+    flipped = !!next;
+    riverLayer.innerHTML = riverTexts(flipped);
+    render();
+  }
+  riverLayer.innerHTML = riverTexts(false);
 
   function makePiece(piece, extraCls = "") {
     const isRed = piece === piece.toLowerCase();
@@ -109,10 +132,11 @@ export function initXiangqi(container) {
     marksLayer.innerHTML = "";
     if (markers) {
       markers.forEach(([r, f], i) => {
+        const p = xy(r, f);
         const c = document.createElementNS(SVG_NS, "circle");
         c.setAttribute("class", "xq-mark " + (i === 0 ? "xq-mark-from" : "xq-mark-to"));
-        c.setAttribute("cx", f * 100);
-        c.setAttribute("cy", (9 - r) * 100);
+        c.setAttribute("cx", p.x);
+        c.setAttribute("cy", p.y);
         c.setAttribute("r", "22");
         marksLayer.appendChild(c);
       });
@@ -124,8 +148,9 @@ export function initXiangqi(container) {
         if (!piece) continue;
         const hidden = hideAt && hideAt[0] === rank && hideAt[1] === file;
         const moved = movedAt && movedAt[0] === rank && movedAt[1] === file;
+        const p = xy(rank, file);
         const g = makePiece(piece, (hidden ? "xq-ghosting " : "") + (moved ? "xq-moved " : ""));
-        g.setAttribute("transform", `translate(${file * 100} ${(9 - rank) * 100})`);
+        g.setAttribute("transform", `translate(${p.x} ${p.y})`);
         piecesLayer.appendChild(g);
       }
     }
@@ -136,10 +161,12 @@ export function initXiangqi(container) {
   function slide(piece, fromFile, fromRank, toFile, toRank) {
     if (ghost) { ghost.remove(); clearTimeout(ghostTimer); }
     ghost = makePiece(piece, "xq-ghost ");
-    ghost.style.transform = `translate(${fromFile * 100}px, ${(9 - fromRank) * 100}px)`;
+    const from = xy(fromRank, fromFile);
+    const to = xy(toRank, toFile);
+    ghost.style.transform = `translate(${from.x}px, ${from.y}px)`;
     piecesLayer.appendChild(ghost);
     requestAnimationFrame(() => {
-      if (ghost) ghost.style.transform = `translate(${toFile * 100}px, ${(9 - toRank) * 100}px)`;
+      if (ghost) ghost.style.transform = `translate(${to.x}px, ${to.y}px)`;
     });
     ghostTimer = setTimeout(() => {
       if (ghost) { ghost.remove(); ghost = null; }
@@ -214,5 +241,5 @@ export function initXiangqi(container) {
   }
 
   reset();
-  return { reset, apply, replayTo, setFen };
+  return { reset, apply, replayTo, setFen, setFlip };
 }

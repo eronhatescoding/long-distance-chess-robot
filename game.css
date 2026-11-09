@@ -918,6 +918,27 @@ body.kiosk #btnQuick {
     display: none;
 }
 
+/* side badge next to a player's name (xiangqi red/black) */
+.side-badge {
+    display: inline-block;
+    padding: 0.2vmin 1.2vmin;
+    margin-left: 0.8vmin;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 1.8vmin;
+    vertical-align: middle;
+}
+
+.side-badge.side-red {
+    background: #d4352b;
+    color: #fff;
+}
+
+.side-badge.side-black {
+    background: #2b3a44;
+    color: #fff;
+}
+
 /* his engine has no variants or difficulty levels — hide them on machines
    (they stay available for browser games) */
 body.kiosk #variantCard,

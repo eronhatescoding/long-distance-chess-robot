@@ -1705,6 +1705,21 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     gameoverPanel.classList.add("hidden");
   }
 
+  // Side badges ("you · 红方"): xiangqi only, since red/black is its language
+  function setSideBadges(state) {
+    const me = document.getElementById("meSide");
+    const them = document.getElementById("themSide");
+    if ((state.gameType || "chess") !== "xiangqi" || !stationPov) {
+      me.classList.add("hidden");
+      them.classList.add("hidden");
+      return;
+    }
+    me.textContent = t(stationSide === "A" ? "side.red" : "side.black");
+    me.className = "side-badge " + (stationSide === "A" ? "side-red" : "side-black");
+    them.textContent = t(stationSide === "A" ? "side.black" : "side.red");
+    them.className = "side-badge " + (stationSide === "A" ? "side-black" : "side-red");
+  }
+
   /* ----- enter / exit / event stream ----- */
   function enterSpectator(state) {
     watching = { code: state.code, names: state.names, minutes: state.minutes, createdByUs: !!state.createdByUs };
@@ -1736,6 +1751,10 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     keepAwake();
     setBaseMode("board"); // spectators watch the board, not the face
     specBoard = boardFor(state.gameType || "chess", specBoardEl, specCache);
+    // black-side players see their own pieces at the bottom — like sitting on
+    // the other side of the physical board — and everyone sees their color
+    specBoard.setFlip?.(stationPov && stationSide === "B");
+    setSideBadges(state);
     // custom openings start from the server's board snapshot, not the
     // standard initial position
     if (state.initialFen && specBoard.setFen(state.initialFen)) {
@@ -1776,6 +1795,8 @@ import { t, getLang, toggleLang, onLangChange, applyStaticTexts } from "./i18n.j
     mistakeActive = false;
     refreshBlocker();
     clearTimeout(povChipTimer);
+    document.getElementById("meSide").classList.add("hidden");
+    document.getElementById("themSide").classList.add("hidden");
     btnBoardView.classList.add("hidden");
     specStopClocks();
     hideTurn();

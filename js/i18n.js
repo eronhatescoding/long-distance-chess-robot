@@ -238,6 +238,8 @@ const DICTS = {
     "block.mistake-hint": "Please move the piece back, then try a different move.",
     "station.ready": "your move — go ahead",
     "station.wait": "please wait…",
+    "side.red": "red",
+    "side.black": "black",
 
     // friends
     "friends.title": "Friends",
@@ -508,6 +510,8 @@ const DICTS = {
     "block.mistake-hint": "请把棋子放回原位，再重新走棋。",
     "station.ready": "轮到你了，请走棋",
     "station.wait": "请稍候…",
+    "side.red": "红方",
+    "side.black": "黑方",
 
     "friends.title": "好友",
     "friends.add": "添加",

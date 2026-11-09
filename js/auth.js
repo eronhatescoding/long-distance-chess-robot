@@ -157,7 +157,7 @@ export function initAuth({ onAuthed, onSignedOut }) {
     // a sign-in that failed leaves whatever account Firebase already had;
     // report it (as spectator) now that the tap no longer owns the screen
     const user = auth.currentUser;
-    if (user && user !== deliveredUser) {
+    if (user && user.uid !== deliveredUser?.uid) {
       deliveredUser = user;
       screen.classList.add("hidden");
       onAuthed(user, "spectator", null);
@@ -285,7 +285,9 @@ export function initAuth({ onAuthed, onSignedOut }) {
   onAuthStateChanged(auth, (user) => {
     if (tap) return; // the tap flow reports its own user when it completes
     if (user) {
-      if (user === deliveredUser) return; // already reported by the tap flow
+      // already reported (by the tap flow, or a token refresh of the same
+      // account): never re-report — that would downgrade play to spectator
+      if (deliveredUser && user.uid === deliveredUser.uid) return;
       deliveredUser = user;
       screen.classList.add("hidden");
       onAuthed(user, "spectator", null);

@@ -1714,10 +1714,15 @@ function xqAbortStationGame(stationId, why) {
   const canResign = party
     ? !!(party.started && pvpSide)
     : room && room.createdByUs && room.turn === (room.humanLetter || 'A');
+  // The engine defers an abort only while an arm step may still be moving. If the station
+  // died mid-step, nothing reports back, so re-send (a fresh event each time) until the
+  // step's lease runs out and the engine ends the game; bounded at XQ_ABORT_RETRIES.
+  let abortTries = 0;
   const ending = (res) => {
     if (res && res.abort_pending) {
       const kiosk = kioskFor(stationId);
-      if (kiosk) sendJSON(kiosk, { type: 'station_game_ending' });
+      if (kiosk && abortTries === 0) sendJSON(kiosk, { type: 'station_game_ending' });
+      if (++abortTries <= XQ_ABORT_RETRIES) setTimeout(abort, XQ_ABORT_RETRY_MS).unref?.();
     }
   };
   const abort = () => xqPost(`/api/xiangqi/games/${encodeURIComponent(gameId)}/abort`, { event_id: crypto.randomUUID() })
@@ -1746,6 +1751,9 @@ function xqAbortStationGame(stationId, why) {
 }
 // ~30 s of retries: longer than any single Dobot step, short enough that a walk-away still ends the game
 const XQ_RESIGN_RETRIES = Number(process.env.XQ_RESIGN_RETRIES) || 15;
+// a deferred abort is re-sent every 15 s for up to 5 min: past the engine's 180 s step lease
+const XQ_ABORT_RETRY_MS = 15000;
+const XQ_ABORT_RETRIES = 20;
 
 // The watcher tracks a requested game by id until it starts (or dies).
 function xqApplyRequested(st, g) {

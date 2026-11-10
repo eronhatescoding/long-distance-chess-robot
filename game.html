@@ -637,15 +637,6 @@
                 <div class="as-big" data-i18n="kiosk.signing-in">signing you in…</div>
                 <div class="as-sub" id="kioskSigningSub"></div>
             </div>
-            <!-- PLACEHOLDER (final design to come): this machine is in use by a
-                 game opened on a phone. Shown by the .phone-playing class on
-                 #kioskAttract while the server reports that phone session;
-                 removed when it ends. #kioskPhoneName holds the player's name
-                 line (empty when unknown). Keep the ids when restyling. -->
-            <div class="attract-phone" id="kioskPhonePlaying" role="status">
-                <div class="ap-big" data-i18n="kiosk.phone-playing">this machine is being played from a phone</div>
-                <div class="ap-name" id="kioskPhoneName"></div>
-            </div>
             <!-- why the last tap sign-in failed (timeout, network, used code);
                  cleared when the next one starts -->
             <div class="attract-signin-error" id="kioskSignInError" role="alert"></div>
@@ -654,6 +645,258 @@
             <button class="attract-staff" id="btnStaffSignin" type="button" data-i18n="kiosk.staff">staff sign
                 in</button>
         </div>
+    <!-- Playing on a phone (design "C · Playing on phone (ambient)", 1920x1080
+         artboard): this machine is in use by a game opened on a phone. Shown by
+         the .phone-playing class on #kioskAttract while the server reports
+         that phone session. The scene and words are one SVG so the whole
+         artboard scales together (slice, like the attract board). Animations:
+         .xp-* in game.css. #kioskPhoneName is kept for the logic but not shown
+         (the design has no name line). -->
+    <div class="attract-phone" id="kioskPhonePlaying" role="status" aria-label="Playing on phone, 手机对弈中">
+        <svg class="ap-scene" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+<defs>
+<pattern id="xp-dots" width="64" height="64" patternUnits="userSpaceOnUse">
+<rect x="-3" y="-3" width="6" height="6" fill="#FFFFFF" opacity="0.38" transform="translate(32 32) rotate(45)"></rect>
+</pattern>
+<linearGradient id="xp-rim" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.7"></stop>
+<stop offset="45%" stop-color="#FFFFFF" stop-opacity="0"></stop>
+<stop offset="55%" stop-color="#000000" stop-opacity="0"></stop>
+<stop offset="100%" stop-color="#000000" stop-opacity="0.45"></stop>
+</linearGradient>
+<radialGradient id="xp-shadow" cx="50%" cy="50%" r="50%">
+<stop offset="0%" stop-color="#2A1A0A" stop-opacity="0.4"></stop>
+<stop offset="62%" stop-color="#2A1A0A" stop-opacity="0.2"></stop>
+<stop offset="100%" stop-color="#2A1A0A" stop-opacity="0"></stop>
+</radialGradient>
+<radialGradient id="xp-hl" cx="50%" cy="50%" r="50%">
+<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"></stop>
+<stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"></stop>
+</radialGradient>
+<radialGradient id="xp-glow" cx="50%" cy="50%" r="50%">
+<stop offset="0%" stop-color="#FFE39A" stop-opacity="0.9"></stop>
+<stop offset="55%" stop-color="#FFE9B0" stop-opacity="0.45"></stop>
+<stop offset="100%" stop-color="#FFE9B0" stop-opacity="0"></stop>
+</radialGradient>
+<radialGradient id="xp-textbg" cx="50%" cy="50%" r="50%">
+<stop offset="0%" stop-color="#FFF6DC" stop-opacity="0.97"></stop>
+<stop offset="62%" stop-color="#FFF6DC" stop-opacity="0.92"></stop>
+<stop offset="100%" stop-color="#FFF6DC" stop-opacity="0"></stop>
+</radialGradient>
+<radialGradient id="xp-f-red" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#E8665A"></stop><stop offset="50%" stop-color="#C8302A"></stop><stop offset="100%" stop-color="#8E1A16"></stop></radialGradient>
+<radialGradient id="xp-f-blue" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#5C8CEB"></stop><stop offset="50%" stop-color="#2459C7"></stop><stop offset="100%" stop-color="#163A8C"></stop></radialGradient>
+<radialGradient id="xp-f-green" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#4FBF86"></stop><stop offset="50%" stop-color="#23915A"></stop><stop offset="100%" stop-color="#136036"></stop></radialGradient>
+<radialGradient id="xp-f-yellow" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#FFD866"></stop><stop offset="50%" stop-color="#E8B024"></stop><stop offset="100%" stop-color="#B07E0C"></stop></radialGradient>
+<radialGradient id="xp-f-orange" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#FF9E5A"></stop><stop offset="50%" stop-color="#E27322"></stop><stop offset="100%" stop-color="#A64A0E"></stop></radialGradient>
+<radialGradient id="xp-f-purple" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#A082EB"></stop><stop offset="50%" stop-color="#6F46C2"></stop><stop offset="100%" stop-color="#482B8C"></stop></radialGradient>
+<radialGradient id="xp-f-pink" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#F58AB4"></stop><stop offset="50%" stop-color="#D9548A"></stop><stop offset="100%" stop-color="#A02E5E"></stop></radialGradient>
+<radialGradient id="xp-f-teal" cx="34%" cy="28%" r="80%"><stop offset="0%" stop-color="#4FC0CC"></stop><stop offset="50%" stop-color="#1A8F9C"></stop><stop offset="100%" stop-color="#0F5F69"></stop></radialGradient>
+
+<g id="xp-b-red"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#6A110E"></circle><circle r="62" fill="url(#xp-f-red)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-blue"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#0F2866"></circle><circle r="62" fill="url(#xp-f-blue)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-green"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#0C4627"></circle><circle r="62" fill="url(#xp-f-green)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-purple"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#321E66"></circle><circle r="62" fill="url(#xp-f-purple)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-pink"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#741F43"></circle><circle r="62" fill="url(#xp-f-pink)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-teal"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#0A444B"></circle><circle r="62" fill="url(#xp-f-teal)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#FFF1D0" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-yellow"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#7E5806"></circle><circle r="62" fill="url(#xp-f-yellow)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#1B2A57" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+<g id="xp-b-orange"><ellipse cx="8" cy="26" rx="80" ry="66" fill="url(#xp-shadow)"></ellipse><circle cy="12" r="62" fill="#7A3408"></circle><circle r="62" fill="url(#xp-f-orange)"></circle><circle r="62" fill="none" stroke="url(#xp-rim)" stroke-width="3"></circle><circle r="46" fill="none" stroke="#000000" stroke-width="3" opacity="0.3"></circle><circle r="45" fill="none" stroke="#1B2A57" stroke-width="2.5"></circle><ellipse cx="-22" cy="-32" rx="28" ry="12" fill="url(#xp-hl)" transform="rotate(-35 -22 -32)"></ellipse></g>
+
+<g id="xp-m-red"><circle cy="2.5" r="12" fill="#6A110E"></circle><circle r="12" fill="url(#xp-f-red)"></circle><circle r="8.6" fill="none" stroke="#FFF1D0" stroke-width="1"></circle></g>
+<g id="xp-m-blue"><circle cy="2.5" r="12" fill="#0F2866"></circle><circle r="12" fill="url(#xp-f-blue)"></circle><circle r="8.6" fill="none" stroke="#FFF1D0" stroke-width="1"></circle></g>
+
+<clipPath id="xp-screen"><rect x="-118" y="-228" width="236" height="456" rx="28"></rect></clipPath>
+</defs>
+
+<!-- table -->
+<rect width="1920" height="1080" fill="#86D0F0"></rect>
+<rect width="1920" height="1080" fill="url(#xp-dots)"></rect>
+
+<!-- confetti on the table -->
+<rect x="-7" y="-7" width="14" height="14" fill="#FF6FA8" transform="translate(44 262) rotate(45)"></rect>
+<rect x="-6" y="-6" width="12" height="12" fill="#FFC93C" transform="translate(150 84) rotate(45)"></rect>
+<rect x="30" y="432" width="18" height="18" fill="#8A5BE6" transform="rotate(20 39 441)"></rect>
+<polygon points="160,610 176,640 144,640" fill="#FF8A2B"></polygon>
+<path d="M0 0 L10 -12 L20 0 L30 -12 L40 0 L50 -12 L60 0" fill="none" stroke="#FFC93C" stroke-width="6" stroke-linejoin="miter" transform="translate(22 806) rotate(-20)"></path>
+<rect x="-6" y="-6" width="12" height="12" fill="#FFFFFF" transform="translate(56 1000) rotate(45)"></rect>
+<rect x="-7" y="-7" width="14" height="14" fill="#FFC93C" transform="translate(1878 268) rotate(45)"></rect>
+<rect x="1866" y="420" width="18" height="18" fill="#E5463C" transform="rotate(-18 1875 429)"></rect>
+<polygon points="1760,612 1776,642 1744,642" fill="#8A5BE6"></polygon>
+<path d="M0 0 L10 -12 L20 0 L30 -12 L40 0 L50 -12 L60 0" fill="none" stroke="#FF6FA8" stroke-width="6" stroke-linejoin="miter" transform="translate(1852 790) rotate(24)"></path>
+<rect x="-6" y="-6" width="12" height="12" fill="#FFFFFF" transform="translate(1884 1010) rotate(45)"></rect>
+<rect x="-5" y="-5" width="10" height="10" fill="#FFFFFF" transform="translate(1760 40) rotate(45)"></rect>
+<rect x="-5" y="-5" width="10" height="10" fill="#FF6FA8" transform="translate(120 1052) rotate(45)"></rect>
+<polygon points="900,22 914,48 886,48" fill="#FFC93C"></polygon>
+<rect x="-6" y="-6" width="12" height="12" fill="#FF8A2B" transform="translate(1040 1058) rotate(45)"></rect>
+
+<!-- the board -->
+<rect x="180" y="66" width="1560" height="984" rx="26" fill="#1B2A57"></rect>
+<rect x="184" y="52" width="1552" height="976" rx="24" fill="#FFF6DC" stroke="#1B2A57" stroke-width="8"></rect>
+<rect x="208" y="76" width="1504" height="928" rx="12" fill="none" stroke="#F0CF7A" stroke-width="4"></rect>
+
+<g fill="none" stroke="#EBCB78" stroke-width="5" stroke-linecap="square">
+<path d="M260 130 H1660 M260 222 H1660 M260 314 H1660 M260 406 H1660 M260 498 H1660 M260 590 H1660 M260 682 H1660 M260 774 H1660 M260 866 H1660 M260 958 H1660"></path>
+<path d="M260 130 V958 M1660 130 V958"></path>
+<path d="M435 130 V498 M610 130 V498 M785 130 V498 M960 130 V498 M1135 130 V498 M1310 130 V498 M1485 130 V498"></path>
+<path d="M435 590 V958 M610 590 V958 M785 590 V958 M960 590 V958 M1135 590 V958 M1310 590 V958 M1485 590 V958"></path>
+<path d="M785 130 L1135 314 M1135 130 L785 314 M785 774 L1135 958 M1135 774 L785 958"></path>
+</g>
+
+<!-- warm light behind the phone, calm panel behind the words -->
+<ellipse cx="960" cy="350" rx="560" ry="500" fill="url(#xp-glow)"></ellipse>
+<ellipse cx="960" cy="800" rx="640" ry="230" fill="url(#xp-textbg)"></ellipse>
+
+<!-- signal ripples spreading out from the phone -->
+<g fill="none" stroke="#1B2A57" stroke-width="3">
+<circle class="xp-ripple" cx="960" cy="350" r="200"></circle>
+<circle class="xp-ripple" cx="960" cy="350" r="200" style="animation-delay:-4s"></circle>
+<circle class="xp-ripple" cx="960" cy="350" r="200" style="animation-delay:-8s"></circle>
+</g>
+
+<!-- slow halo ring with four gold markers -->
+<g class="xp-spin">
+<circle cx="960" cy="350" r="270" fill="none" stroke="#E0A81E" stroke-width="3" stroke-dasharray="3 14" stroke-linecap="square"></circle>
+<rect x="-8" y="-8" width="16" height="16" fill="#FFC93C" stroke="#1B2A57" stroke-width="3" transform="translate(960 80) rotate(45)"></rect>
+<rect x="-8" y="-8" width="16" height="16" fill="#FFC93C" stroke="#1B2A57" stroke-width="3" transform="translate(1230 350) rotate(45)"></rect>
+<rect x="-8" y="-8" width="16" height="16" fill="#FFC93C" stroke="#1B2A57" stroke-width="3" transform="translate(960 620) rotate(45)"></rect>
+<rect x="-8" y="-8" width="16" height="16" fill="#FFC93C" stroke="#1B2A57" stroke-width="3" transform="translate(690 350) rotate(45)"></rect>
+</g>
+
+<!-- sparkles -->
+<g stroke="#1B2A57" stroke-width="3" stroke-linejoin="miter">
+<path class="xp-twinkle" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFFFFF" transform="translate(600 130)"></path>
+<path class="xp-twinkle" style="animation-delay:-1.6s" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFC93C" transform="translate(1284 112) scale(.8)"></path>
+<path class="xp-twinkle" style="animation-delay:-3.1s" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFC93C" transform="translate(760 240) scale(.9)"></path>
+<path class="xp-twinkle" style="animation-delay:-2.2s" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFFFFF" transform="translate(1190 560)"></path>
+<path class="xp-twinkle" style="animation-delay:-4.1s" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFFFFF" transform="translate(520 640) scale(.8)"></path>
+<path class="xp-twinkle" style="animation-delay:-0.8s" d="M0 -16 L4 -4 L16 0 L4 4 L0 16 L-4 4 L-16 0 L-4 -4 Z" fill="#FFC93C" transform="translate(1500 610) scale(.9)"></path>
+</g>
+
+<!-- drifting lacquered pieces -->
+<g font-family="'Ma Shan Zheng','STKaiti','KaiTi','Songti SC',serif" text-anchor="middle">
+<g transform="translate(92 168)"><g class="xp-float" style="animation-duration:7.2s;animation-delay:-1s"><use href="#xp-b-red"></use><text transform="rotate(-16)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">帅</text><text transform="rotate(-16)" y="24.5" font-size="64" fill="#FFF1D0">帅</text></g></g>
+<g transform="translate(148 352)"><g class="xp-float" style="animation-duration:8.4s;animation-delay:-3.2s"><use href="#xp-b-yellow"></use><text transform="rotate(14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">马</text><text transform="rotate(14)" y="24.5" font-size="64" fill="#1B2A57">马</text></g></g>
+<g transform="translate(84 540)"><g class="xp-float" style="animation-duration:6.8s;animation-delay:-5.1s"><use href="#xp-b-green"></use><text transform="rotate(-8)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">炮</text><text transform="rotate(-8)" y="24.5" font-size="64" fill="#FFF1D0">炮</text></g></g>
+<g transform="translate(140 724)"><g class="xp-float" style="animation-duration:9s;animation-delay:-2.4s"><use href="#xp-b-purple"></use><text transform="rotate(18)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">车</text><text transform="rotate(18)" y="24.5" font-size="64" fill="#FFF1D0">车</text></g></g>
+<g transform="translate(96 904)"><g class="xp-float" style="animation-duration:7.6s;animation-delay:-6.3s"><use href="#xp-b-orange"></use><text transform="rotate(-14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">兵</text><text transform="rotate(-14)" y="24.5" font-size="64" fill="#1B2A57">兵</text></g></g>
+
+<g transform="translate(1832 150)"><g class="xp-float" style="animation-duration:8s;animation-delay:-4s"><use href="#xp-b-blue"></use><text transform="rotate(14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">将</text><text transform="rotate(14)" y="24.5" font-size="64" fill="#FFF1D0">将</text></g></g>
+<g transform="translate(1778 330)"><g class="xp-float" style="animation-duration:7s;animation-delay:-0.6s"><use href="#xp-b-pink"></use><text transform="rotate(-12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">相</text><text transform="rotate(-12)" y="24.5" font-size="64" fill="#FFF1D0">相</text></g></g>
+<g transform="translate(1838 520)"><g class="xp-float" style="animation-duration:9.2s;animation-delay:-5.5s"><use href="#xp-b-teal"></use><text transform="rotate(16)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">象</text><text transform="rotate(16)" y="24.5" font-size="64" fill="#FFF1D0">象</text></g></g>
+<g transform="translate(1782 706)"><g class="xp-float" style="animation-duration:6.6s;animation-delay:-2.8s"><use href="#xp-b-red"></use><text transform="rotate(-10)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">炮</text><text transform="rotate(-10)" y="24.5" font-size="64" fill="#FFF1D0">炮</text></g></g>
+<g transform="translate(1826 892)"><g class="xp-float" style="animation-duration:8.6s;animation-delay:-7.2s"><use href="#xp-b-green"></use><text transform="rotate(12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">卒</text><text transform="rotate(12)" y="24.5" font-size="64" fill="#FFF1D0">卒</text></g></g>
+
+<g transform="translate(330 30) scale(.85)"><g class="xp-float" style="animation-duration:7.8s;animation-delay:-3.7s"><use href="#xp-b-orange"></use><text transform="rotate(-10)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">兵</text><text transform="rotate(-10)" y="24.5" font-size="64" fill="#1B2A57">兵</text></g></g>
+<g transform="translate(1560 26) scale(.85)"><g class="xp-float" style="animation-duration:8.2s;animation-delay:-1.9s"><use href="#xp-b-purple"></use><text transform="rotate(12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">士</text><text transform="rotate(12)" y="24.5" font-size="64" fill="#FFF1D0">士</text></g></g>
+<g transform="translate(560 1062) scale(.9)"><g class="xp-float" style="animation-duration:7.4s;animation-delay:-4.6s"><use href="#xp-b-blue"></use><text transform="rotate(8)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">马</text><text transform="rotate(8)" y="24.5" font-size="64" fill="#FFF1D0">马</text></g></g>
+<g transform="translate(1380 1066) scale(.9)"><g class="xp-float" style="animation-duration:9.4s;animation-delay:-6s"><use href="#xp-b-yellow"></use><text transform="rotate(-14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">仕</text><text transform="rotate(-14)" y="24.5" font-size="64" fill="#1B2A57">仕</text></g></g>
+<g transform="translate(352 196) scale(.85)"><g class="xp-float" style="animation-duration:6.9s;animation-delay:-2.2s"><use href="#xp-b-green"></use><text transform="rotate(-14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">车</text><text transform="rotate(-14)" y="24.5" font-size="64" fill="#FFF1D0">车</text></g></g>
+<g transform="translate(1636 214) scale(.85)"><g class="xp-float" style="animation-duration:8.8s;animation-delay:-5.8s"><use href="#xp-b-red"></use><text transform="rotate(12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">炮</text><text transform="rotate(12)" y="24.5" font-size="64" fill="#FFF1D0">炮</text></g></g>
+<g transform="translate(312 936) scale(.8)"><g class="xp-float" style="animation-duration:7.1s;animation-delay:-0.2s"><use href="#xp-b-yellow"></use><text transform="rotate(16)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">兵</text><text transform="rotate(16)" y="24.5" font-size="64" fill="#1B2A57">兵</text></g></g>
+<g transform="translate(1608 940) scale(.8)"><g class="xp-float" style="animation-duration:8.3s;animation-delay:-3.4s"><use href="#xp-b-teal"></use><text transform="rotate(-12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">象</text><text transform="rotate(-12)" y="24.5" font-size="64" fill="#FFF1D0">象</text></g></g>
+<g transform="translate(640 470) scale(.8)"><g class="xp-float" style="animation-duration:7.7s;animation-delay:-2.6s"><use href="#xp-b-blue"></use><text transform="rotate(-8)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">车</text><text transform="rotate(-8)" y="24.5" font-size="64" fill="#FFF1D0">车</text></g></g>
+<g transform="translate(1280 440) scale(.8)"><g class="xp-float" style="animation-duration:8.9s;animation-delay:-4.8s"><use href="#xp-b-orange"></use><text transform="rotate(10)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">马</text><text transform="rotate(10)" y="24.5" font-size="64" fill="#1B2A57">马</text></g></g>
+</g>
+
+<!-- the phone: floor shadow, then the device -->
+<ellipse cx="966" cy="618" rx="170" ry="22" fill="url(#xp-shadow)"></ellipse>
+
+<g transform="translate(960 350) rotate(-5)">
+<g class="xp-float" style="animation-duration:8s">
+<rect x="-130" y="-228" width="260" height="480" rx="38" fill="#0E1735"></rect>
+<rect x="-130" y="-240" width="260" height="480" rx="38" fill="#1B2A57"></rect>
+<rect x="-127" y="-237" width="254" height="474" rx="35" fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2"></rect>
+<rect x="130" y="-120" width="5" height="64" rx="2" fill="#0E1735"></rect>
+<rect x="-135" y="-160" width="5" height="40" rx="2" fill="#0E1735"></rect>
+<rect x="-135" y="-108" width="5" height="40" rx="2" fill="#0E1735"></rect>
+
+<rect x="-118" y="-228" width="236" height="456" rx="28" fill="#FFF6DC"></rect>
+
+<g transform="translate(-118 -228)" font-family="'Ma Shan Zheng','STKaiti','KaiTi','Songti SC',serif" text-anchor="middle">
+<!-- opponent -->
+<circle cx="38" cy="60" r="16" fill="#0F2866"></circle>
+<circle cx="38" cy="58" r="16" fill="url(#xp-f-blue)"></circle>
+<text x="38" y="64" font-size="18" fill="#FFF1D0">将</text>
+<rect x="64" y="52" width="84" height="14" rx="3" fill="#E6D6A6"></rect>
+<!-- board -->
+<g transform="translate(19.6 117.3) scale(.82)">
+<rect x="-12" y="-12" width="264" height="294" rx="4" fill="#F6DE9C" stroke="#1B2A57" stroke-width="4"></rect>
+<rect x="-5" y="-5" width="250" height="280" fill="none" stroke="#7A5A1E" stroke-width="1.5"></rect>
+<g fill="none" stroke="#7A5A1E" stroke-width="2">
+<path d="M0 0H240M0 30H240M0 60H240M0 90H240M0 120H240M0 150H240M0 180H240M0 210H240M0 240H240M0 270H240"></path>
+<path d="M0 0V270M240 0V270"></path>
+<path d="M30 0V120M60 0V120M90 0V120M120 0V120M150 0V120M180 0V120M210 0V120"></path>
+<path d="M30 150V270M60 150V270M90 150V270M120 150V270M150 150V270M180 150V270M210 150V270"></path>
+<path d="M90 0L150 60M150 0L90 60M90 210L150 270M150 210L90 270"></path>
+</g>
+<text x="60" y="141" font-size="16" fill="#7A5A1E">楚河</text>
+<text x="180" y="141" font-size="16" fill="#7A5A1E">汉界</text>
+
+<g transform="translate(120 0)"><use href="#xp-m-blue"></use><text y="5" font-size="13" fill="#FFF1D0">将</text></g>
+<g transform="translate(0 0)"><use href="#xp-m-blue"></use><text y="5" font-size="13" fill="#FFF1D0">车</text></g>
+<g transform="translate(30 60)"><use href="#xp-m-blue"></use><text y="5" font-size="13" fill="#FFF1D0">炮</text></g>
+<g transform="translate(120 90)"><use href="#xp-m-blue"></use><text y="5" font-size="13" fill="#FFF1D0">卒</text></g>
+<g transform="translate(180 90)"><use href="#xp-m-blue"></use><text y="5" font-size="13" fill="#FFF1D0">卒</text></g>
+
+<g transform="translate(120 270)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">帅</text></g>
+<g transform="translate(240 270)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">车</text></g>
+<g transform="translate(210 270)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">马</text></g>
+<g transform="translate(120 180)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">兵</text></g>
+<g transform="translate(60 180)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">兵</text></g>
+<circle class="xp-pulse" cx="210" cy="210" r="17" fill="none" stroke="#E0A81E" stroke-width="3.5"></circle>
+<g transform="translate(210 210)"><use href="#xp-m-red"></use><text y="5" font-size="13" fill="#FFF1D0">炮</text></g>
+</g>
+<!-- you -->
+<circle cx="38" cy="400" r="16" fill="#6A110E"></circle>
+<circle cx="38" cy="398" r="16" fill="url(#xp-f-red)"></circle>
+<text x="38" y="404" font-size="18" fill="#FFF1D0">帅</text>
+<rect x="64" y="391" width="84" height="14" rx="3" fill="#E6D6A6"></rect>
+<rect class="xp-pulse" x="-7" y="-7" width="14" height="14" fill="#FFC93C" stroke="#1B2A57" stroke-width="2.5" transform="translate(204 398) rotate(45)"></rect>
+<rect x="78" y="440" width="80" height="4" rx="2" fill="#1B2A57" opacity="0.55"></rect>
+</g>
+
+<circle cx="0" cy="-208" r="7" fill="#1B2A57"></circle>
+<g clip-path="url(#xp-screen)">
+<polygon points="-118,-228 -6,-228 -118,-18" fill="#FFFFFF" opacity="0.14"></polygon>
+<polygon points="26,-228 56,-228 -118,100 -118,66" fill="#FFFFFF" opacity="0.1"></polygon>
+</g>
+</g>
+</g>
+
+<!-- two pieces perched on the phone -->
+<g font-family="'Ma Shan Zheng','STKaiti','KaiTi','Songti SC',serif" text-anchor="middle">
+<g transform="translate(838 556) scale(.78)"><g class="xp-float" style="animation-duration:7s;animation-delay:-1.4s"><use href="#xp-b-red"></use><text transform="rotate(-14)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">帅</text><text transform="rotate(-14)" y="24.5" font-size="64" fill="#FFF1D0">帅</text></g></g>
+<g transform="translate(1086 164) scale(.7)"><g class="xp-float" style="animation-duration:8.2s;animation-delay:-3.6s"><use href="#xp-b-blue"></use><text transform="rotate(12)" x="-1.2" y="23" font-size="64" fill="#000000" opacity="0.4">将</text><text transform="rotate(12)" y="24.5" font-size="64" fill="#FFF1D0">将</text></g></g>
+</g>
+
+<!-- words: title, status pill, caption (design: padding-top 628px, centered) -->
+<svg x="590" y="628" width="740" height="150" viewBox="0 0 740 150" overflow="visible">
+<g font-family="'Noto Serif SC','Songti SC','SimSun',serif" font-weight="900" font-size="118" text-anchor="middle" stroke-linejoin="miter" stroke-miterlimit="2.5">
+<g fill="#1B2A57" stroke="#1B2A57" stroke-width="12" transform="translate(0 8)">
+<text x="90" y="112">手</text><text x="230" y="112">机</text><text x="370" y="112">对</text><text x="510" y="112">弈</text><text x="650" y="112">中</text>
+</g>
+<g stroke="#1B2A57" stroke-width="10" paint-order="stroke">
+<text x="90" y="112" fill="#D4352B">手</text><text x="230" y="112" fill="#D4352B">机</text><text x="370" y="112" fill="#1F62E3">对</text><text x="510" y="112" fill="#1F62E3">弈</text><text x="650" y="112" fill="#1F62E3">中</text>
+</g>
+</g>
+</svg>
+<foreignObject x="0" y="778" width="1920" height="302">
+<div xmlns="http://www.w3.org/1999/xhtml" class="ap-words">
+<div style="margin-top:12px;display:flex;align-items:center;gap:16px;height:52px;box-sizing:border-box;padding:0 30px;border:4px solid #1B2A57;border-radius:10px;background:#FFC93C;box-shadow:0 5px 0 #1B2A57">
+<span class="xp-pulse" style="width:16px;height:16px;box-sizing:border-box;background:#1FA35C;border:3px solid #1B2A57;transform:rotate(45deg)"></span>
+<span style="font-size:25px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#1B2A57">Playing on phone</span>
+<span style="width:8px;height:8px;background:#1B2A57;transform:rotate(45deg)"></span>
+<span style="font-size:25px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#1B2A57">Connected</span>
+</div>
+
+<div style="margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:6px">
+<span lang="zh-Hans" style="font-family:'Noto Serif SC','Songti SC','SimSun',serif;font-weight:900;font-size:26px;line-height:1.3;color:#1B2A57">请在手机上落子，慢慢来。</span>
+<span style="font-size:27px;font-weight:600;line-height:1.25;color:#2A3A6A">Your board is on your phone. Take your time and enjoy the game.</span>
+</div>
+</div>
+</foreignObject>
+        </svg>
+        <div id="kioskPhoneName" hidden></div>
+    </div>
     </div>
 
     <!-- kiosk choice prompt: a phone tapped at this station — where should

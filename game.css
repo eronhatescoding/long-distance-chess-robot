@@ -1014,34 +1014,133 @@ body.kiosk .diff-labels {
     display: none;
 }
 
-/* PLACEHOLDER: machine in use from a phone (final design to come) */
+/* Playing on a phone: design "C · Playing on phone (ambient)" (1920x1080
+   artboard, values copied from its export). The scene SVG fills the screen
+   like the attract board; the words sit inside it so everything scales
+   together. */
 .attract-phone {
     display: none;
-    text-align: center;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    overflow: hidden;
+    background: #86D0F0;
 }
 
 .kiosk-attract.phone-playing .attract-phone {
     display: block;
 }
 
-.attract-phone .ap-big {
-    font-family: "Baloo 2", "Fredoka", sans-serif;
-    font-size: 4.6vmin;
-    font-weight: 800;
-    color: #3d2e1d;
+.attract-phone .ap-scene {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    color: #1B2A57;
+    font-family: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
 }
 
-.attract-phone .ap-name {
-    font-family: "Baloo 2", "Fredoka", sans-serif;
-    font-size: 3vmin;
-    font-weight: 700;
-    color: #3d2e1d;
-    opacity: 0.75;
-    margin-top: 1vmin;
+.attract-phone .ap-words {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 1920px;
+    box-sizing: border-box;
+    color: #1B2A57;
+    font-family: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif;
 }
 
-.attract-phone .ap-name:empty {
-    display: none;
+.xp-float {
+    animation: xp-float 8s ease-in-out infinite;
+}
+
+.xp-ripple {
+    transform-box: fill-box;
+    transform-origin: center;
+    vector-effect: non-scaling-stroke;
+    opacity: .22;
+    transform: scale(1.6);
+    animation: xp-ripple 12s ease-out infinite;
+}
+
+.xp-spin {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: xp-spin 120s linear infinite;
+}
+
+.xp-twinkle {
+    animation: xp-twinkle 5s ease-in-out infinite;
+}
+
+.xp-pulse {
+    animation: xp-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes xp-float {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-14px);
+    }
+}
+
+@keyframes xp-ripple {
+    0% {
+        transform: scale(.7);
+        opacity: .5;
+    }
+
+    100% {
+        transform: scale(3.4);
+        opacity: 0;
+    }
+}
+
+@keyframes xp-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes xp-twinkle {
+    0%,
+    100% {
+        opacity: .25;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes xp-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .3;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .xp-float,
+    .xp-ripple,
+    .xp-spin,
+    .xp-twinkle,
+    .xp-pulse {
+        animation: none;
+    }
 }
 
 .kiosk-attract.phone-playing #modeChoose,

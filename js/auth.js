@@ -135,7 +135,14 @@ export function initAuth({ onAuthed, onSignedOut }) {
   const token = params.get("token");
   const code = params.get("code");
 
+  // A station screen shows its own signing-in state on the attract page.
+  const onKiosk = new URLSearchParams(location.search).has("station");
+
   function beginTapSignIn() {
+    // the spinner card: a phone opening a tap link sees progress at once
+    // (the sign-in takes several seconds), not an empty page
+    screen.classList.add("tap-signing");
+    if (!onKiosk) screen.classList.remove("hidden");
     subEl.textContent = t("auth.tap");
     form.classList.add("hidden");
     toggleBtn.classList.add("hidden");
@@ -146,6 +153,8 @@ export function initAuth({ onAuthed, onSignedOut }) {
 
   function failTapSignIn(message) {
     tapPlay = false;
+    screen.classList.remove("tap-signing");
+    if (!onKiosk) screen.classList.remove("hidden"); // the reason and the sign-in form
     // a kiosk showing the signing-in state goes back to the normal attract,
     // and says why — its auth form is hidden, so setError alone is invisible
     document.getElementById("kioskAttract")?.classList.remove("signing-in");
@@ -237,6 +246,7 @@ export function initAuth({ onAuthed, onSignedOut }) {
       tapSessionId = data.sessionId || null;
       tap = null;
       deliveredUser = cred.user;
+      screen.classList.remove("tap-signing");
       screen.classList.add("hidden");
       await onAuthed(cred.user, "play", tapSessionId);
       marks.ready = performance.now();

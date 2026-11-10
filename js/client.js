@@ -487,6 +487,36 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     }
   }
 
+  // Tap feedback on the attract screen. station_tap_seen arrives as soon as the
+  // server receives a tap for this machine (before its slow checks), so the
+  // spinner appears at once; station_login, station_phone_session or
+  // station_tap_done replace it. A lost follow-up never leaves it spinning.
+  const TAP_SEEN_MAX_MS = 25000;
+  let tapSeenTimer = null;
+  function showTapSpinner(sub) {
+    kioskAttract.classList.add("signing-in");
+    document.getElementById("kioskSignInError").textContent = "";
+    document.getElementById("kioskSigningSub").textContent = sub || "";
+    clearTimeout(tapSeenTimer);
+    tapSeenTimer = setTimeout(clearTapSpinner, TAP_SEEN_MAX_MS);
+  }
+  function clearTapSpinner() {
+    clearTimeout(tapSeenTimer);
+    tapSeenTimer = null;
+    document.getElementById("kioskSigningSub").textContent = "";
+    kioskAttract.classList.remove("signing-in");
+  }
+
+  // The machine is being played from a phone (bridge tap delivered to the
+  // app). PLACEHOLDER screen: #kioskPhonePlaying in game.html.
+  let phoneSession = null; // { name } while the server reports one
+  function setPhoneSession(session) {
+    phoneSession = session;
+    kioskAttract.classList.toggle("phone-playing", !!session);
+    document.getElementById("kioskPhoneName").textContent =
+      session && session.name ? t("kiosk.phone-playing-name", { name: session.name }) : "";
+  }
+
   function hideAsk() {
     pendingAsk = null;
     kioskAsk.classList.add("hidden");
@@ -974,6 +1004,9 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     // A repeated push of the same code joins the running sign-in.
     station_login(msg) {
       if (!stationKiosk || !msg.url) return;
+      clearTimeout(tapSeenTimer); // the sign-in's own state takes over from here
+      tapSeenTimer = null;
+      setPhoneSession(null);
       kioskLoginInPlace(msg.url);
     },
 
@@ -1023,10 +1056,35 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       el.onclick = () => location.reload(); // deliberate takeover
     },
 
+    // A tap for this machine reached the server: spin until the login lands.
+    station_tap_seen() {
+      if (!stationKiosk || playMode || inRoom || watching || guestMode || phoneSession) return;
+      showTapSpinner(kioskMode === "phone" ? t("kiosk.tap-seen-phone") : "");
+    },
+    station_tap_done(msg) {
+      if (!stationKiosk || !tapSeenTimer) return;
+      clearTapSpinner();
+      if (!msg.ok) document.getElementById("kioskSignInError").textContent = t("kiosk.tap-failed");
+    },
+    // The game opened on the player's phone; this screen shows the machine is in use.
+    station_phone_session(msg) {
+      if (!stationKiosk) return;
+      clearTapSpinner();
+      setPhoneSession({ name: msg.name || null });
+      renderKioskState();
+    },
+    station_phone_ended() {
+      if (!stationKiosk || !phoneSession) return;
+      setPhoneSession(null);
+      setKioskMode(null); // the next player chooses where to play again
+      renderKioskState();
+    },
+
     // A phone tapped at this station and the player must choose where the
     // game opens (deliver: "ask" from the bridge). Only shown on idle kiosks.
     station_ask(msg) {
       if (!stationKiosk || !msg.url) return;
+      clearTapSpinner();
       pendingAsk = { url: msg.url, code: new URL(msg.url).searchParams.get("code") };
       askTitle.textContent = t("ask.title", { name: msg.name || t("guest.name") });
       kioskAsk.classList.remove("hidden");
@@ -2206,6 +2264,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     renderKioskState();
   }
   onLangChange(() => {
+    if (phoneSession) setPhoneSession(phoneSession); // the name line is translated text
     lobbyWelcome.textContent = myName
       ? t("lobby.welcome", { name: myName })
       : t("lobby.welcome-default");

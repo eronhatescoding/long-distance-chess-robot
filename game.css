@@ -966,6 +966,94 @@ body.kiosk .diff-labels {
     display: none;
 }
 
+/* tap spinner: kiosk signing-in state and the phone's tap sign-in card */
+.tap-spinner {
+    width: 9vmin;
+    height: 9vmin;
+    margin: 0 auto 2.2vmin;
+    border-radius: 50%;
+    border: 1.1vmin solid rgba(61, 46, 29, 0.16);
+    border-top-color: #3d2e1d;
+    animation: tap-spin 0.9s linear infinite;
+}
+
+.auth-spinner {
+    display: none;
+    width: 46px;
+    height: 46px;
+    margin: 10px auto 14px;
+    border-width: 5px;
+}
+
+.auth-screen.tap-signing .auth-spinner {
+    display: block;
+}
+
+@keyframes tap-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tap-spinner {
+        animation-duration: 2.4s;
+    }
+}
+
+.attract-signin .as-sub {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 2.6vmin;
+    font-weight: 700;
+    color: #3d2e1d;
+    opacity: 0.75;
+    margin-top: 1vmin;
+}
+
+.attract-signin .as-sub:empty {
+    display: none;
+}
+
+/* PLACEHOLDER: machine in use from a phone (final design to come) */
+.attract-phone {
+    display: none;
+    text-align: center;
+}
+
+.kiosk-attract.phone-playing .attract-phone {
+    display: block;
+}
+
+.attract-phone .ap-big {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 4.6vmin;
+    font-weight: 800;
+    color: #3d2e1d;
+}
+
+.attract-phone .ap-name {
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-size: 3vmin;
+    font-weight: 700;
+    color: #3d2e1d;
+    opacity: 0.75;
+    margin-top: 1vmin;
+}
+
+.attract-phone .ap-name:empty {
+    display: none;
+}
+
+.kiosk-attract.phone-playing #modeChoose,
+.kiosk-attract.phone-playing #modeHint,
+.kiosk-attract.phone-playing #btnGuestPlay,
+.kiosk-attract.phone-playing #btnStaffSignin,
+.kiosk-attract.phone-playing .attract-signin,
+.kiosk-attract.phone-playing .attract-signin-error,
+.kiosk-attract.phone-playing .attract-river .ar-sub {
+    display: none;
+}
+
 .attract-signin-error {
     font-family: "Baloo 2", "Fredoka", sans-serif;
     font-size: 2.8vmin;

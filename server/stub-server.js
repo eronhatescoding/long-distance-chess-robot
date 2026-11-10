@@ -539,8 +539,10 @@ async function handleHceToken(req, res) {
 //   -> { ok, uid, url }            first sight of eventId
 //   -> { ok, uid, url, duplicate } repeat delivery of the same eventId
 async function handleBridgeTap(req, res) {
+  let seenStation = null; // set once the screen was told a tap is being processed
   const fail = (code, detail) => {
     console.log(`[bridge] rejected: ${detail}`);
+    if (seenStation != null) notifyTapDone(seenStation, false);
     jsonResponse(res, code, { ok: false, detail });
   };
   if (!fbAuth || !db) return fail(503, 'server has no firebase credentials');
@@ -558,6 +560,7 @@ async function handleBridgeTap(req, res) {
   }
   const { eventId, playerId } = msg || {};
   if (!eventId || !playerId) return fail(400, 'need eventId and playerId');
+  if (msg.stationId != null && notifyTapSeen(msg.stationId)) seenStation = String(msg.stationId);
 
   try {
     const uid = `sql_${String(playerId)}`;
@@ -599,6 +602,8 @@ async function handleBridgeTap(req, res) {
         const re = await tapStore.reentryCode(docRef);
         if (re.code) {
           console.log(`[bridge] re-entry for active event ${eventId}: ${re.reused ? 'returning the live code' : 'new code issued'}`);
+          if (existing.stationId) notifyPhoneSession(existing.stationId, docRef.id, existing.displayName);
+          if (seenStation != null && seenStation !== String(existing.stationId)) notifyTapDone(seenStation, true);
           return jsonResponse(res, 200, {
             ok: true, uid, url: `${base}/game.html?code=${re.code}`, duplicate: true,
             ...re.status, delivery, delivered,
@@ -607,6 +612,7 @@ async function handleBridgeTap(req, res) {
         Object.assign(st, re.status);
       }
       console.log(`[bridge] duplicate eventId ${eventId} — session is ${st.status}`);
+      if (seenStation != null && !(existing.deliverTo === 'kiosk' && delivered)) notifyTapDone(seenStation, true);
       return jsonResponse(res, 200, {
         ok: true, uid, url: `${base}/game.html?code=${existing.code}`, duplicate: true,
         ...st, delivery, delivered,
@@ -622,6 +628,7 @@ async function handleBridgeTap(req, res) {
     const tomb = await db.collection('ended_events').doc(String(eventId)).get();
     if (tomb.exists) {
       console.log(`[bridge] rejected ${eventId}: session was ended before creation`);
+      if (seenStation != null) notifyTapDone(seenStation, false);
       return jsonResponse(res, 409, {
         ok: false, status: 'ended', detail: 'event was ended before it was created',
       });
@@ -680,6 +687,7 @@ async function handleBridgeTap(req, res) {
     }));
     if (created.kind === 'tombstoned') {
       console.log(`[bridge] rejected ${eventId}: session was ended before creation`);
+      if (seenStation != null) notifyTapDone(seenStation, false);
       return jsonResponse(res, 409, {
         ok: false, status: 'ended', detail: 'event was ended before it was created',
       });
@@ -693,6 +701,10 @@ async function handleBridgeTap(req, res) {
     let delivered = false;
     if (delivery === 'kiosk') {
       delivered = deliverToKiosk(msg.stationId, kioskUrl(msg.stationId, code), docRef.id);
+      if (!delivered && seenStation != null) notifyTapDone(seenStation, false);
+    } else if (delivery === 'app' && msg.stationId != null) {
+      // the phone plays; the machine's screen shows that it is in use
+      notifyPhoneSession(msg.stationId, docRef.id, msg.displayName ? String(msg.displayName).slice(0, 24) : null);
     } else if (delivery === 'ask') {
       const askUrl = `${base}/game.html?station=${encodeURIComponent(msg.stationId)}&code=${code}`;
       sendJSON(askKiosk, { type: 'station_ask', url: askUrl, name: msg.displayName || null });
@@ -704,6 +716,7 @@ async function handleBridgeTap(req, res) {
           if (doc.exists && doc.data().deliverTo == null && !doc.data().used) {
             await docRef.update({ deliverTo: 'app' });
             console.log(`[bridge] ask ${eventId} timed out — delivering to app`);
+            notifyPhoneSession(msg.stationId, docRef.id, msg.displayName ? String(msg.displayName).slice(0, 24) : null);
           }
         } catch { /* session doc gone — nothing to default */ }
       }, 30000).unref();
@@ -885,6 +898,9 @@ async function endSession(found, reason) {
       .set({ endedAt: fsFieldValue.serverTimestamp(), reason });
   }
   activeSessions.delete(found.ref.id);
+  for (const [stationId, entry] of stationPhoneSessions) {
+    if (entry.sessionId === found.ref.id) clearPhoneSession(stationId, reason);
+  }
   const pending = sessionTimers.get(found.ref.id);
   if (pending) { clearTimeout(pending); sessionTimers.delete(found.ref.id); }
   console.log(`[session] ended ${found.ref.id} (${reason})`);
@@ -998,6 +1014,7 @@ async function handleSessionChoose(req, res) {
       return jsonResponse(res, 200, { ok: true, deliverTo: d.deliverTo, already: true });
     }
     await ref.update({ deliverTo: choice });
+    if (choice === 'app' && d.stationId) notifyPhoneSession(d.stationId, ref.id, d.displayName);
     console.log(`[session-choose] session ${ref.id} -> ${choice}`);
     jsonResponse(res, 200, { ok: true, deliverTo: choice });
   } catch (err) {
@@ -1062,6 +1079,58 @@ const kioskLastDelivery = new Map(); // stationId -> { at, sessionId } of last p
 // A duplicate bridge request for the same session inside this window is not
 // pushed again: the screen is still redeeming the first push.
 const KIOSK_REPUSH_MS = 20000;
+
+// A phone tap delivered to the app still occupies the machine, so its screen
+// says so instead of waiting on "tap your phone" forever. Display only: it
+// never changes delivery, busy rules or the event lifecycle.
+const stationPhoneSessions = new Map(); // stationId -> { sessionId, name, since }
+
+function notifyPhoneSession(stationId, sessionId, name) {
+  if (stationId == null || !sessionId) return;
+  const id = String(stationId);
+  stationPhoneSessions.set(id, { sessionId, name: name || null, since: Date.now() });
+  const kiosk = kioskFor(id);
+  if (kiosk) sendJSON(kiosk, { type: 'station_phone_session', name: name || null });
+  console.log(`[kiosk] station ${id}: game opened on a phone (session ${sessionId})`);
+}
+
+function clearPhoneSession(stationId, reason) {
+  const id = String(stationId);
+  if (!stationPhoneSessions.delete(id)) return;
+  const kiosk = kioskFor(id);
+  if (kiosk) sendJSON(kiosk, { type: 'station_phone_ended', reason });
+  console.log(`[kiosk] station ${id}: phone game over (${reason})`);
+}
+
+// Phone events end by app Disconnect (endSession clears at once), by their
+// unused code expiring, or by the 2 h maximum — the last two are only seen
+// by looking, every 15 s.
+setInterval(() => {
+  if (!db) return;
+  for (const [stationId, entry] of stationPhoneSessions) {
+    findSession({ sessionId: entry.sessionId })
+      .then((found) => {
+        const st = found ? sessionStatus(found.data).status : 'ended';
+        if (st !== 'pending' && st !== 'active' && stationPhoneSessions.get(stationId) === entry) {
+          clearPhoneSession(stationId, st);
+        }
+      })
+      .catch(() => {}); // try again next sweep
+  }
+}, 15000).unref();
+
+// "A tap reached us for this station" — sent before the slow Firestore work,
+// so the screen can show a spinner right away. One station_tap_done (or a
+// station_login / station_phone_session) always follows.
+function notifyTapSeen(stationId) {
+  const kiosk = stationId != null ? kioskFor(stationId) : null;
+  if (kiosk) sendJSON(kiosk, { type: 'station_tap_seen' });
+  return !!kiosk;
+}
+function notifyTapDone(stationId, ok) {
+  const kiosk = stationId != null ? kioskFor(stationId) : null;
+  if (kiosk) sendJSON(kiosk, { type: 'station_tap_done', ok });
+}
 
 function kioskFor(stationId) {
   const k = kioskByStation.get(String(stationId));
@@ -2794,6 +2863,8 @@ function handleClientMessage(socket, text) {
         sendJSON(prev, { type: 'kiosk_replaced' });
       }
       kioskByStation.set(id, socket);
+      const phone = stationPhoneSessions.get(id);
+      if (phone) sendJSON(socket, { type: 'station_phone_session', name: phone.name }); // a refreshed screen
       for (const room of rooms.values()) {
         if (!room.callPeers || !room.callRoles || !room.callRoles[id]) continue;
         const i = room.callPeers.findIndex((p) => p.kioskStation === id && p !== socket);

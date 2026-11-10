@@ -457,6 +457,8 @@
     <div class="auth-screen hidden" id="authScreen">
         <div class="auth-card">
             <div class="auth-title" data-i18n="auth.title">Robot Chess</div>
+            <!-- shown while a tap link is signing in (.tap-signing on #authScreen) -->
+            <div class="tap-spinner auth-spinner" aria-hidden="true"></div>
             <div class="auth-sub" id="authSub">sign in to watch — tap your card or phone at a machine to play</div>
             <form id="authForm" novalidate>
                 <input type="email" id="authEmail" data-i18n-ph="auth.email" placeholder="email" required
@@ -631,7 +633,18 @@
                  state replaces the selection UI so the steps never flash by.
                  Purely CSS-driven by the .signing-in class on #kioskAttract. -->
             <div class="attract-signin" id="kioskSigningIn">
+                <div class="tap-spinner" aria-hidden="true"></div>
                 <div class="as-big" data-i18n="kiosk.signing-in">signing you in…</div>
+                <div class="as-sub" id="kioskSigningSub"></div>
+            </div>
+            <!-- PLACEHOLDER (final design to come): this machine is in use by a
+                 game opened on a phone. Shown by the .phone-playing class on
+                 #kioskAttract while the server reports that phone session;
+                 removed when it ends. #kioskPhoneName holds the player's name
+                 line (empty when unknown). Keep the ids when restyling. -->
+            <div class="attract-phone" id="kioskPhonePlaying" role="status">
+                <div class="ap-big" data-i18n="kiosk.phone-playing">this machine is being played from a phone</div>
+                <div class="ap-name" id="kioskPhoneName"></div>
             </div>
             <!-- why the last tap sign-in failed (timeout, network, used code);
                  cleared when the next one starts -->

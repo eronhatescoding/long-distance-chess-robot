@@ -174,8 +174,37 @@ export function initXiangqi(container) {
     }, 300);
   }
 
+  // The game's starting position: captured pieces are the ones it had that
+  // the board no longer has (xiangqi has no promotion, so counts are exact;
+  // custom openings with missing pieces count from their own start).
+  let start = INITIAL.map((row) => row.slice());
+
+  // Pieces each side has lost so far, as board glyphs, most valuable first.
+  // light = red (lost red pieces), dark = black.
+  function lost() {
+    const count = (m) => {
+      const c = {};
+      for (const row of m) for (const p of row) if (p) c[p] = (c[p] || 0) + 1;
+      return c;
+    };
+    const before = count(start);
+    const now = count(model);
+    const out = { light: [], dark: [] };
+    for (const k of "grhceas") {
+      for (const p of [k, k.toUpperCase()]) {
+        const n = (before[p] || 0) - (now[p] || 0);
+        for (let i = 0; i < n; i++) {
+          if (p === k) out.light.push(RED_GLYPHS[k]);
+          else out.dark.push(BLACK_GLYPHS[p]);
+        }
+      }
+    }
+    return out;
+  }
+
   function reset() {
     model = INITIAL.map((row) => row.slice());
+    start = INITIAL.map((row) => row.slice());
     markers = null;
     movedAt = null;
     if (ghost) { ghost.remove(); ghost = null; clearTimeout(ghostTimer); }
@@ -233,6 +262,7 @@ export function initXiangqi(container) {
         if (file !== 9) return false;
       }
       model = next;
+      start = next.map((row) => row.slice());
       render();
       return true;
     } catch {
@@ -241,5 +271,5 @@ export function initXiangqi(container) {
   }
 
   reset();
-  return { reset, apply, replayTo, setFen, setFlip };
+  return { reset, apply, replayTo, setFen, setFlip, lost };
 }

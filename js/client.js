@@ -366,6 +366,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     myName = name;
     myUid = user.uid;
     lobbyWelcome.textContent = t("lobby.welcome", { name });
+    renderPlates(); // a game already on screen shows the signed-in name
     refreshProfile();
     applyModeGate();
     btnSignOut.classList.remove("hidden");
@@ -813,6 +814,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       btnBoardView.classList.add("hidden"); // board view is an in-game thing
       btnCamToggle.classList.add("hidden");
       playerBoard = null;
+      renderPlates(); // no game: plates away
       videoCall.stop(); // leaving the room kills the camera — never leave it warm
       showLobby("lobby.back");
       if (!playMode) refreshWatchLists();
@@ -823,6 +825,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       opponentConnected = true;
       oppName = msg.name || null;
       oppUid = msg.uid || null; // null for the robot and legacy servers
+      renderPlates();
       friends?.refreshAddButton();
       videoCall.peerAvailable = !soloMode; // the robot has no camera
       hideLobby(); // rejoining mid-session safety
@@ -871,6 +874,8 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       // (chess: black-first variant when the opponent opens; xiangqi ignores)
       playerBoard = boardFor(roomGameType, specBoardEl, playerCache);
       playerBoard.reset(msg.first === "opponent");
+      roomFirstYou = msg.first === "you";
+      renderPlates();
       if (stationKiosk) setBaseMode("board"); // station screens default to the board
       showCoinflip(msg.first === "you");
     },
@@ -878,6 +883,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     move_applied(msg) {
       hideBlocker();
       playerBoard?.apply(msg.move); // the board tracks every verified move
+      renderPlates();
       if (msg.by === "opponent") {
         setFace("happy", { hold: 1500, returnTo: turnState || faceState });
       }
@@ -1622,6 +1628,68 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
   let specBoard = null;
   let replayBoard = null;
 
+  /* ----- player plates: names in their side's colour + captured pieces ----- */
+  const plateTop = document.getElementById("plateTop");
+  const plateBottom = document.getElementById("plateBottom");
+  let roomFirstYou = true; // xiangqi rooms: whoever moves first plays red
+
+  // Who is playing which side of the board on screen right now, or null.
+  function plateInfo() {
+    if (watching && specBoard) {
+      const raw = watching.rawNames || {};
+      const label = (letter) => {
+        if (stationPov && letter === stationSide) return myName || t("clock.you");
+        const n = raw[letter];
+        return n === "robot" ? t("clock.robot") : n || "";
+      };
+      // A is red / white on spectator boards; black's POV flips the board
+      return { type: watching.gameType, board: specBoard, flipped: stationPov && stationSide === "B",
+               light: label("A"), dark: label("B") };
+    }
+    if (inRoom && playerBoard) {
+      // chess rooms show this player as white (an opponent opening plays black);
+      // xiangqi rooms: red is whoever moves first
+      const meLight = roomGameType === "xiangqi" ? roomFirstYou : true;
+      const me = myName || t("clock.you");
+      const them = oppName || (soloMode ? t("clock.robot") : t("clock.opp"));
+      return { type: roomGameType, board: playerBoard, flipped: false,
+               light: meLight ? me : them, dark: meLight ? them : me };
+    }
+    return null;
+  }
+
+  function fillPlate(el, p) {
+    el.className = "player-plate pp-" + p.side;
+    el.querySelector(".pp-name").textContent = p.name;
+    const caps = el.querySelector(".pp-caps");
+    caps.textContent = "";
+    for (const glyph of p.caps) {
+      const c = document.createElement("span");
+      c.className = "pp-cap pp-cap-" + p.capSide;
+      c.textContent = glyph;
+      caps.appendChild(c);
+    }
+  }
+
+  function renderPlates() {
+    const info = plateInfo();
+    if (!info || !info.board.lost) {
+      plateTop.classList.add("hidden");
+      plateBottom.classList.add("hidden");
+      return;
+    }
+    const lost = info.board.lost();
+    const xq = info.type === "xiangqi";
+    const lightSide = xq ? "red" : "white";
+    const darkSide = xq ? "black" : "chess-black";
+    // each player shows what they captured: the other side's lost pieces
+    const light = { name: info.light, side: xq ? "red" : "white", caps: lost.dark, capSide: darkSide };
+    const dark = { name: info.dark, side: "black", caps: lost.light, capSide: lightSide };
+    const [bottom, top] = info.flipped ? [dark, light] : [light, dark];
+    fillPlate(plateBottom, bottom);
+    fillPlate(plateTop, top);
+  }
+
   // Station POV readiness chip: "your move — go ahead" vs "please wait…".
   // Each state holds for at least a second — camera verification lag must
   // not make the chip flicker between wait and ready.
@@ -1791,7 +1859,8 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
 
   /* ----- enter / exit / event stream ----- */
   function enterSpectator(state) {
-    watching = { code: state.code, names: state.names, minutes: state.minutes, createdByUs: !!state.createdByUs };
+    watching = { code: state.code, names: state.names, minutes: state.minutes, createdByUs: !!state.createdByUs,
+                 rawNames: { ...(state.names || {}) }, gameType: state.gameType || "chess" };
     hideAsk(); // a live game supersedes the phone-or-screen prompt
     // station kiosk watching its own game: present it as the human's POV —
     // "you" vs the robot/opponent, the player turn chip, the face reacts.
@@ -1831,6 +1900,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     } else {
       specBoard.replayTo(state.moves || []); // catch up to the live position
     }
+    renderPlates();
     if (state.minutes) {
       specSetClocks(state.minutes);
       if (state.turn) specSetActiveClock(state.turn);
@@ -1868,6 +1938,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     document.getElementById("themSide").classList.add("hidden");
     btnBoardView.classList.add("hidden");
     specStopClocks();
+    renderPlates(); // spectating over
     hideTurn();
     hideSpecGameover();
     setBaseMode("face");
@@ -1880,6 +1951,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
       case "game_start":
         hideSpecGameover();
         specBoard.reset(msg.first === "B");
+        renderPlates();
         if (msg.minutes || watching.minutes) specSetClocks(msg.minutes || watching.minutes);
         break;
       case "turn":
@@ -1893,6 +1965,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
         break;
       case "move_applied":
         specBoard.apply(msg.move);
+        renderPlates();
         // the board is set up and the game is real now — clear the wait note
         if (watching.createdByUs) face.setMessage(null);
         if (stationPov && msg.by === "B") setFace("happy", { hold: 1500, returnTo: "thinking" });
@@ -2264,6 +2337,7 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
     renderKioskState();
   }
   onLangChange(() => {
+    renderPlates(); // "you" / "robot" labels are translated
     if (phoneSession) setPhoneSession(phoneSession); // the name line is translated text
     lobbyWelcome.textContent = myName
       ? t("lobby.welcome", { name: myName })

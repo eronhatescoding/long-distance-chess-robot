@@ -128,6 +128,17 @@
             <button class="add-friend hidden" id="btnAddOpponent" title="add opponent as friend"
                 type="button">+</button>
         </div>
+        <!-- player plates (during a game): each player's name in their side's
+             colour, beside the pieces they have captured. Placed on the side
+             of the board where that player's pieces are. -->
+        <div class="player-plate hidden" id="plateTop">
+            <span class="pp-name"></span>
+            <span class="pp-caps"></span>
+        </div>
+        <div class="player-plate hidden" id="plateBottom">
+            <span class="pp-name"></span>
+            <span class="pp-caps"></span>
+        </div>
         <div class="clock mine hidden" id="clockMe">
             <span class="clock-label">you</span>
             <span class="side-badge hidden" id="meSide"></span>

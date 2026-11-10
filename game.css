@@ -1384,6 +1384,110 @@ body.kiosk .diff-labels {
     color: var(--ink);
 }
 
+/* ---------- player plates: name in side colour + captured pieces ----------
+   Left of the board, mirroring the clocks on the right: the player whose
+   pieces are at the top of the board on top, the other at the bottom. */
+.player-plate {
+    position: absolute;
+    left: 4.6vmin;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8vmin;
+    width: 24vmin;
+    padding: 1.4vmin 2vmin 1.4vmin;
+    border-radius: 2vmin;
+    background: linear-gradient(168deg, var(--plaque), var(--plaque-2));
+    box-shadow:
+        inset 0 0 0 0.4vmin var(--plaque-edge),
+        inset 0 1vmin 1.2vmin rgba(255, 255, 255, 0.8),
+        0 0.9vmin 0 var(--plaque-side),
+        var(--cast-m);
+}
+
+.player-plate.hidden {
+    display: none;
+}
+
+#plateTop {
+    top: 11.5vmin;
+}
+
+#plateBottom {
+    bottom: 4.6vmin;
+}
+
+.pp-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: "Baloo 2", "Fredoka", sans-serif;
+    font-weight: 800;
+    font-size: 2.6vmin;
+    line-height: 1.1;
+    color: var(--ink);
+}
+
+/* the player's own colour: red side in red, black side in black */
+.pp-red .pp-name {
+    color: #d4352b;
+}
+
+.pp-black .pp-name {
+    color: #1a1410;
+}
+
+.pp-caps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4vmin;
+    min-height: 3.4vmin;
+}
+
+/* a captured piece: a small disc in the captured piece's own colour */
+.pp-cap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.4vmin;
+    height: 3.4vmin;
+    border-radius: 50%;
+    background: #f6e3b4;
+    box-shadow: inset 0 0 0 0.3vmin currentColor, 0 0.25vmin 0 rgba(61, 46, 29, 0.35);
+    font-family: "KaiTi", "STKaiti", "SimSun", serif;
+    font-weight: 700;
+    font-size: 2.1vmin;
+    line-height: 1;
+}
+
+.pp-cap-red {
+    color: #b03a2e;
+}
+
+.pp-cap-black {
+    color: #2c1f10;
+}
+
+/* chess captures: plain glyphs, white ones outlined so they read on cream */
+.pp-cap-white,
+.pp-cap-chess-black {
+    background: none;
+    box-shadow: none;
+    width: auto;
+    font-family: inherit;
+    font-size: 3vmin;
+}
+
+.pp-cap-white {
+    color: #fff;
+    -webkit-text-stroke: 0.15vmin var(--ink);
+}
+
+.pp-cap-chess-black {
+    color: #1a1410;
+}
+
 /* whose turn it is: the token lifts off the board */
 .clock.active {
     transform: translateY(-0.6vmin);

@@ -143,6 +143,22 @@ export function initBoard(container) {
     }
   }
 
+  // Pieces each side has lost so far (light = white, dark = black), from the
+  // move history — exact even when a pawn has promoted.
+  function lost() {
+    const out = { light: [], dark: [] };
+    for (const mv of chess.history({ verbose: true })) {
+      if (!mv.captured) continue;
+      // the mover took a piece of the other colour
+      (mv.color === "b" ? out.light : out.dark).push(GLYPHS[mv.captured]);
+    }
+    const order = "qrbnpk";
+    const rank = (g) => order.indexOf(Object.keys(GLYPHS).find((k) => GLYPHS[k] === g));
+    out.light.sort((a, b) => rank(a) - rank(b));
+    out.dark.sort((a, b) => rank(a) - rank(b));
+    return out;
+  }
+
   reset();
-  return { reset, apply, replayTo, setFen };
+  return { reset, apply, replayTo, setFen, lost };
 }

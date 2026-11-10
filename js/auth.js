@@ -247,6 +247,9 @@ export function initAuth({ onAuthed, onSignedOut }) {
       tap = null;
       deliveredUser = cred.user;
       screen.classList.remove("tap-signing");
+      // signed in: the attract screen's waiting state is over too (it hides
+      // now, and must not still be spinning when the player later signs out)
+      document.getElementById("kioskAttract")?.classList.remove("signing-in");
       screen.classList.add("hidden");
       await onAuthed(cred.user, "play", tapSessionId);
       marks.ready = performance.now();
@@ -312,6 +315,7 @@ export function initAuth({ onAuthed, onSignedOut }) {
     app,
     redeemTap,
     initialTap,
+    signingIn: () => !!tap, // a tap sign-in is running right now
     signOut() {
       tapPlay = false;
       return signOut(auth);

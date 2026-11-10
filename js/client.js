@@ -526,9 +526,17 @@ import { loadClientConfig, createFriendsLifecycle, startClientServices } from ".
   // A resting kiosk (no play session, no game) shows the attract screen and
   // hides the lobby/auth screens. Called on state changes and on a 1 s
   // interval as a catch-all — it only toggles a class.
+  let wasResting = true; // the kiosk boots on the attract screen
   function renderKioskState() {
     if (!stationKiosk) return;
     const resting = !playMode && !inRoom && !pendingGame && !watching && !staffOverride;
+    if (resting && !wasResting && !authApi?.signingIn?.()) {
+      // back home after playing (sign out, guest back, session ended, idle
+      // lock): show the welcome steps, never a leftover "signing you in"
+      clearTapSpinner();
+      document.getElementById("kioskSignInError").textContent = "";
+    }
+    wasResting = resting;
     kioskAttract.classList.toggle("hidden", !resting);
     // the guest back-button exists only while a guest is idle in the lobby
     document.getElementById("btnGuestBack").classList.toggle(
